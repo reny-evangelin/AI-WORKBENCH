@@ -1,0 +1,8 @@
+pymupdf
+python-docx
+openpyxl
+chromadb
+sentence-transformers
+numpy
+scikit-learn
+pytest
