@@ -1,0 +1,16 @@
+{
+  "title": "Inspection Approval Note",
+  "equipment": "Cooling Water Pump P-101",
+  "equipment_type": "Centrifugal Pump",
+  "finding": "Abnormal vibration detected during routine inspection.",
+  "severity": "Medium",
+  "location": "Pump House - Area 1",
+  "analysis": "The inspection finding indicates abnormal vibration in the cooling water pump. Based on the available inspection information and referenced maintenance guidance, the pump should be checked for alignment, bearing condition, and coupling issues.",
+  "recommendation": "Inspect pump alignment, bearings, and coupling. Schedule corrective maintenance if abnormal vibration persists.",
+  "sop_reference": "SOP-MECH-014: Centrifugal Pump Inspection and Maintenance",
+  "source_document": "Sample_Inspection_Report.pdf",
+  "source_pages": [
+    2,
+    3
+  ]
+}
