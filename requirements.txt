@@ -1,5 +1,5 @@
 # ============================================================
-# SIH117 — Main AI Agent Dependencies
+# SIH117 — Main AI Agent & RAG Dependencies
 # ============================================================
 
 # --- LLM & Agent Framework ---
@@ -11,6 +11,13 @@ langchain-community>=0.3.0
 # --- Workflow Framework ---
 langgraph>=0.2.0
 
+# --- Vector Database & RAG (Member 3) ---
+pymupdf
+chromadb
+sentence-transformers
+numpy
+scikit-learn
+
 # --- Data Validation ---
 pydantic>=2.0.0
 
@@ -18,7 +25,7 @@ pydantic>=2.0.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 
-# --- Document & Export Tools ---
+# --- Document & Export Tools (Member 4) ---
 python-docx
 reportlab
 openpyxl
