@@ -1,5 +1,24 @@
+# Virtual Environment
 .venv/
+venv/
+ENV/
+
+# Byte-compiled / Python artifacts
 __pycache__/
 *.pyc
-*.log
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Environment Variables
 .env
+!.env.example
+
+# Logs and outputs
+*.log
+outputs/
+
+# OS / Editor artifacts
+.DS_Store
+.vscode/
+.idea/

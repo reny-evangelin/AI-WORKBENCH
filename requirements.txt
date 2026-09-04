@@ -1,0 +1,23 @@
+# ============================================================
+# SIH117 — Member 2: Main AI Agent Dependencies
+# ============================================================
+
+# --- LLM & Agent Framework ---
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-ollama>=0.2.0
+langchain-community>=0.3.0
+
+# --- Workflow Framework ---
+langgraph>=0.2.0
+
+# --- Data Validation ---
+pydantic>=2.0.0
+
+# --- Utilities & Networking ---
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# --- Testing & Quality Assurance ---
+pytest>=8.0.0
+pytest-cov>=4.1.0
