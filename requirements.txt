@@ -1,5 +1,5 @@
 # ============================================================
-# SIH117 — Member 2: Main AI Agent Dependencies
+# SIH117 — Main AI Agent Dependencies
 # ============================================================
 
 # --- LLM & Agent Framework ---
@@ -18,6 +18,12 @@ pydantic>=2.0.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 
+# --- Document & Export Tools ---
+python-docx
+reportlab
+openpyxl
+
 # --- Testing & Quality Assurance ---
 pytest>=8.0.0
 pytest-cov>=4.1.0
+
