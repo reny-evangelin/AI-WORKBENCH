@@ -20,7 +20,7 @@ class Settings:
             "OLLAMA_MODEL", "qwen2.5-coder:1.5b"
         )
         self.temperature: float = float(os.getenv("TEMPERATURE", "0.0"))
-        self.request_timeout: int = int(os.getenv("REQUEST_TIMEOUT", "60"))
+        self.request_timeout: int = int(os.getenv("REQUEST_TIMEOUT", "120"))
 
     def as_dict(self) -> dict:
         return {

@@ -1,7 +1,6 @@
 """
 ollama_client.py — Ollama Connection Layer for Member 2 Agent
 """
-
 import requests
 from typing import Dict, Any, Optional
 from langchain_ollama import ChatOllama
