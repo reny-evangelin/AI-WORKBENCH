@@ -61,14 +61,33 @@ def generate_outputs(
 
     generated_files = {}
 
+    def _get_unique_path(base_path: Path) -> Path:
+        """Browser-like download logic to avoid overwriting existing files."""
+        if not base_path.exists():
+            return base_path
+            
+        counter = 1
+        while True:
+            new_path = base_path.parent / f"{base_path.stem}({counter}){base_path.suffix}"
+            if not new_path.exists():
+                return new_path
+            counter += 1
+
+    # Helper to handle generating files with unique names
+    def _safe_call(gen_func, data, target_path: Path):
+        unique_path = _get_unique_path(target_path)
+        try:
+            return gen_func(data, str(unique_path))
+        except PermissionError:
+            # Fallback if somehow still locked
+            fallback = unique_path.parent / f"{unique_path.stem}_new{unique_path.suffix}"
+            return gen_func(data, str(fallback))
+
     # Generate DOCX
     if "docx" in formats:
         docx_path = output_directory / "Approval_Note.docx"
 
-        result = generate_docx(
-            data,
-            str(docx_path)
-        )
+        result = _safe_call(generate_docx, data, docx_path)
 
         is_valid, message = validate_output_file(result)
 
@@ -81,10 +100,7 @@ def generate_outputs(
     if "pdf" in formats:
         pdf_path = output_directory / "Approval_Note.pdf"
 
-        result = generate_pdf(
-            data,
-            str(pdf_path)
-        )
+        result = _safe_call(generate_pdf, data, pdf_path)
 
         is_valid, message = validate_output_file(result)
 
@@ -97,12 +113,9 @@ def generate_outputs(
     if "xlsx" in formats:
         excel_path = output_directory / "Approval_Note.xlsx"
 
-        result = generate_excel(
-            data,
-            str(excel_path)
-        )
+        result = _safe_call(generate_excel, data, excel_path)
 
-        is_valid, message = validate_output_file(result)
+        is_valid, message = validate_output_file(result, data)
 
         if not is_valid:
             raise RuntimeError(message)

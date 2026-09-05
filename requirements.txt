@@ -30,6 +30,9 @@ python-docx
 reportlab
 openpyxl
 
+# --- UI Framework ---
+PySide6>=6.6.0
+
 # --- Testing & Quality Assurance ---
 pytest>=8.0.0
 pytest-cov>=4.1.0

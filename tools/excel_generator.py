@@ -6,228 +6,62 @@ from openpyxl.styles import Font, Alignment
 
 def generate_excel(data: dict, output_path: str) -> str:
     """
-    Generate an Inspection Approval Note in Excel format.
-
-    Args:
-        data: Structured analysis data.
-        output_path: Path where the Excel file should be created.
-
-    Returns:
-        The output file path.
+    Generate an Excel format report based on the provided sheets structure.
     """
-
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
     workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = "Inspection Approval"
+    
+    # Remove default sheet
+    default_sheet = workbook.active
+    workbook.remove(default_sheet)
 
-    # Title
-    worksheet["A1"] = data.get(
-        "title",
-        "Inspection Approval Note"
-    )
+    sheets = data.get("sheets", [])
+    
+    if not sheets:
+        # Fallback if somehow empty
+        ws = workbook.create_sheet("Report")
+        ws["A1"] = data.get("title", "Report")
+    
+    for sheet_data in sheets:
+        sheet_name = str(sheet_data.get("name", "Sheet"))
+        ws = workbook.create_sheet(sheet_name)
+        
+        columns = sheet_data.get("columns", [])
+        rows = sheet_data.get("rows", [])
+        
+        # Write Title
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max(len(columns), 1))
+        title_cell = ws.cell(row=1, column=1, value=data.get("title", "Report"))
+        title_cell.font = Font(bold=True, size=14)
+        title_cell.alignment = Alignment(horizontal="center")
+        
+        # Write Columns
+        col_idx = 1
+        for col_name in columns:
+            cell = ws.cell(row=2, column=col_idx, value=str(col_name))
+            cell.font = Font(bold=True)
+            col_idx += 1
+            
+        # Write Rows
+        current_row = 3
+        for row_data in rows:
+            col_idx = 1
+            for val in row_data:
+                cell = ws.cell(row=current_row, column=col_idx, value=val)
+                # Ensure alignment wrapping
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                col_idx += 1
+            current_row += 1
+            
+        # Freeze headers
+        ws.freeze_panes = "A3"
+        
+        # Auto-size columns slightly
+        for col in range(1, len(columns) + 1):
+            column_letter = ws.cell(row=2, column=col).column_letter
+            ws.column_dimensions[column_letter].width = 25
 
-    worksheet["A1"].font = Font(
-        bold=True,
-        size=16
-    )
-
-    # Equipment Details
-    worksheet["A3"] = "Equipment Details"
-    worksheet["A3"].font = Font(bold=True)
-
-    equipment_details = [
-        ("Equipment", data.get("equipment", "")),
-        ("Equipment Type", data.get("equipment_type", "")),
-        ("Location", data.get("location", "")),
-        ("Severity", data.get("severity", "")),
-    ]
-
-    row = 4
-
-    for label, value in equipment_details:
-        worksheet.cell(
-            row=row,
-            column=1,
-            value=label
-        )
-
-        worksheet.cell(
-            row=row,
-            column=2,
-            value=str(value)
-        )
-
-        worksheet.cell(
-            row=row,
-            column=1
-        ).font = Font(bold=True)
-
-        row += 1
-
-    # Inspection Finding
-    worksheet.cell(
-        row=row + 1,
-        column=1,
-        value="Inspection Finding"
-    )
-
-    worksheet.cell(
-        row=row + 1,
-        column=1
-    ).font = Font(bold=True)
-
-    worksheet.cell(
-        row=row + 2,
-        column=1,
-        value=data.get("finding", "")
-    )
-
-    worksheet.merge_cells(
-        start_row=row + 2,
-        start_column=1,
-        end_row=row + 2,
-        end_column=2,
-    )
-
-    row += 4
-
-    # AI Analysis
-    worksheet.cell(
-        row=row,
-        column=1,
-        value="AI Analysis"
-    )
-
-    worksheet.cell(
-        row=row,
-        column=1
-    ).font = Font(bold=True)
-
-    worksheet.cell(
-        row=row + 1,
-        column=1,
-        value=data.get("analysis", "")
-    )
-
-    worksheet.merge_cells(
-        start_row=row + 1,
-        start_column=1,
-        end_row=row + 1,
-        end_column=2,
-    )
-
-    row += 3
-
-    # Recommended Action
-    worksheet.cell(
-        row=row,
-        column=1,
-        value="Recommended Action"
-    )
-
-    worksheet.cell(
-        row=row,
-        column=1
-    ).font = Font(bold=True)
-
-    worksheet.cell(
-        row=row + 1,
-        column=1,
-        value=data.get("recommendation", "")
-    )
-
-    worksheet.merge_cells(
-        start_row=row + 1,
-        start_column=1,
-        end_row=row + 1,
-        end_column=2,
-    )
-
-    row += 3
-
-    # SOP / Knowledge Reference
-    worksheet.cell(
-        row=row,
-        column=1,
-        value="SOP / Knowledge Reference"
-    )
-
-    worksheet.cell(
-        row=row,
-        column=1
-    ).font = Font(bold=True)
-
-    worksheet.cell(
-        row=row + 1,
-        column=1,
-        value=data.get("sop_reference", "")
-    )
-
-    worksheet.merge_cells(
-        start_row=row + 1,
-        start_column=1,
-        end_row=row + 1,
-        end_column=2,
-    )
-
-    row += 3
-
-    # Source Traceability
-    worksheet.cell(
-        row=row,
-        column=1,
-        value="Source Traceability"
-    )
-
-    worksheet.cell(
-        row=row,
-        column=1
-    ).font = Font(bold=True)
-
-    # Source Document
-    worksheet.cell(
-        row=row + 1,
-        column=1,
-        value="Source Document"
-    )
-
-    worksheet.cell(
-        row=row + 1,
-        column=2,
-        value=data.get("source_document", "")
-    )
-
-    # Source Pages
-    source_pages = data.get("source_pages", [])
-
-    worksheet.cell(
-        row=row + 2,
-        column=1,
-        value="Source Pages"
-    )
-
-    worksheet.cell(
-        row=row + 2,
-        column=2,
-        value=", ".join(map(str, source_pages))
-    )
-
-    # Column widths
-    worksheet.column_dimensions["A"].width = 30
-    worksheet.column_dimensions["B"].width = 80
-
-    # Wrap long text and align cells
-    for row_cells in worksheet.iter_rows():
-        for cell in row_cells:
-            cell.alignment = Alignment(
-                wrap_text=True,
-                vertical="top"
-            )
-
-    # Save workbook
     workbook.save(output_file)
-
     return str(output_file)

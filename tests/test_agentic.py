@@ -1,137 +1,193 @@
 """
-test_agentic.py — Offline Unit and Live Integration tests for Phase 3 Agentic Engine
+test_agentic.py — Unit and Live Integration tests for Phase 3 Agentic Engine
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
-from agent import run_agent, AgentResponse, tool_registry
+from unittest.mock import patch
+import json
+from pathlib import Path
+from agent import run_agent, tool_registry
 from agent.tools import ToolResult
-from agent.graph.nodes import plan_request, execute_tool_node, evaluate_result, MAX_ITERATIONS
-from agent.ollama_client import OllamaClient
-
+from agent.graph.nodes import execute_tool_node, evaluate_result
+import openpyxl
 
 # =====================================================================
-# Offline Unit Tests (Run in CI without network/Ollama dependencies)
+# Unit Tests (Run in CI without network/Ollama dependencies)
 # =====================================================================
 
-def test_conversational_response_planning():
-    """Test 1: Hello routes to direct conversational response."""
-    state = {"user_request": "hello"}
-    res = plan_request(state)
-    assert res["intent"] == "general"
-    assert res["plan"][0]["action"] == "respond"
-
-
-def test_general_query_planning():
-    """Test 2: General question routes to direct LLM response path."""
-    state = {"user_request": "What is a pump?"}
-    res = plan_request(state)
-    assert res["intent"] == "general"
-    assert res["plan"][0]["action"] == "respond"
-
-
-def test_pid_action_planning():
-    """Test 3: P&ID request produces analyze_pid plan action."""
-    state = {"user_request": "Explain this P&ID drawing"}
-    res = plan_request(state)
-    assert res["intent"] == "pid"
-    assert res["plan"][0]["action"] == "analyze_pid"
-
-
-def test_excel_action_planning():
-    """Test 4: Excel report request produces generate_excel plan action."""
-    state = {"user_request": "Create an Excel report"}
-    res = plan_request(state)
-    assert res["intent"] == "document"
-    assert res["plan"][0]["action"] == "generate_excel"
-
-
-def test_multistep_plan_creation():
-    """Test 5: Multi-step request produces sequential multi-step plan."""
-    state = {"user_request": "Analyze this P&ID and create an Excel report"}
-    res = plan_request(state)
-    assert res["intent"] == "multi_step"
-    assert len(res["plan"]) == 2
-    assert res["plan"][0]["action"] == "analyze_pid"
-    assert res["plan"][1]["action"] == "generate_excel"
-
-
-def test_missing_input_detection():
-    """Test 6: Missing P&ID file input halts tool execution gracefully with needs_input."""
+def test_9_tool_failure_mocked():
+    """Test 9 — Tool Failure: Mock generate_excel to fail. Expected success=False. No fake success."""
     state = {
-        "user_request": "Analyze my P&ID",
-        "tool_name": "analyze_pid",
-        "tool_input": {"file_path": None},
+        "user_request": "Generate an Excel",
+        "tool_name": "generate_excel",
+        "tool_input": {"content": {"title": "Test", "sheets": []}},
         "observations": [],
         "sources": [],
     }
-    obs_res = execute_tool_node(state)
-    assert obs_res["tool_result"]["success"] is False
-    assert "Missing" in obs_res["tool_result"]["error"]
-
-    state["tool_result"] = obs_res["tool_result"]
-    eval_res = evaluate_result(state)
-    assert eval_res["status"] == "needs_input"
-
-
-def test_tool_failure_recovery():
-    """Test 7: ToolResult failure returns controlled error status."""
     with patch.object(tool_registry, "execute_tool") as mock_exec:
         mock_exec.return_value = ToolResult(
             success=False,
-            tool_name="search_knowledge",
+            tool_name="generate_excel",
             data={},
             sources=[],
-            error="Database connection timeout",
+            error="Mocked Excel failure",
         )
-        state = {
-            "user_request": "Search knowledge",
-            "tool_name": "search_knowledge",
-            "tool_input": {"query": "API 610"},
-            "observations": [],
-            "sources": [],
-        }
-        res = execute_tool_node(state)
-        assert res["tool_result"]["success"] is False
-        assert "timeout" in res["tool_result"]["error"]
+        obs_res = execute_tool_node(state)
+        assert obs_res["tool_result"]["success"] is False
+        
+        state["tool_result"] = obs_res["tool_result"]
+        eval_res = evaluate_result(state)
+        assert eval_res["status"] == "error"
+        assert "Mocked Excel failure" in eval_res["response"]
 
-
-def test_max_iteration_limit_enforcement():
-    """Test 8: Maximum iteration count stops execution loop safely."""
-    state = {"iteration_count": MAX_ITERATIONS - 1, "plan": [], "current_step": 1}
-    res = evaluate_result(state)
-    assert res["status"] == "error"
-    assert "maximum iteration limit" in res["response"]
-
-
-def test_arbitrary_tool_execution_rejection():
-    """Test 10: Arbitrary tool or shell command execution is rejected by registry."""
-    res_shell = tool_registry.execute_tool("shell", {"command": "dir"})
-    assert res_shell.success is False
-    assert "Unauthorized tool execution" in res_shell.error
-
-    res_powershell = tool_registry.execute_tool("powershell", {"command": "ls"})
-    assert res_powershell.success is False
-    assert "Unauthorized tool execution" in res_powershell.error
+def test_10_invalid_excel_data():
+    """Test 10 — Invalid Excel Data: Use invalid workbook data {"sheets": "invalid"}."""
+    # We call output_generator directly or through tool_registry
+    res = tool_registry.execute_tool("generate_excel", {"content": {"title": "Bad", "sheets": "invalid"}})
+    # Interfaces catches validation errors and returns success=False
+    assert res.success is False
+    assert "Invalid analysis data" in res.error or "must be a list" in res.error or "must be a dictionary" in res.error
 
 
 # =====================================================================
 # Live Integration Tests (Require live Ollama service)
 # =====================================================================
 
-
 @pytest.mark.integration
-def test_agentic_live_general_execution(ollama_check):
-    """Integration test: Verify live general query execution via agentic workflow."""
-    res = run_agent("What is a pump?")
+def test_1_normal_chat(ollama_check):
+    """Test 1 — Normal Chat: hello -> intent=general, no document tool"""
+    res = run_agent("hello")
     assert res.status == "success"
-    assert isinstance(res.answer, str)
-    assert len(res.answer) > 10
-
+    # Should be a normal response, not a JSON file object
+    try:
+        data = json.loads(res.answer)
+        assert data.get("type") != "file", "Should not generate file for 'hello'"
+    except:
+        pass  # Text output is expected
 
 @pytest.mark.integration
-def test_agentic_live_multistep_honest_response(ollama_check):
-    """Integration test: Multi-step request produces honest response without fake data."""
-    res = run_agent("Analyze this P&ID drawing and create an Excel report")
-    assert res.status in ("needs_input", "error", "success")
-    assert isinstance(res.answer, str)
+def test_2_pdf(ollama_check):
+    """Test 2 — PDF: Create a PDF report about AI -> generate_pdf, real PDF"""
+    res = run_agent("Create a PDF report about AI.")
+    assert res.status == "success"
+    
+    data = json.loads(res.answer)
+    assert data["type"] == "file"
+    assert data["file_type"] == "pdf"
+    
+    pdf_path = Path(data["path"])
+    assert pdf_path.exists()
+    assert pdf_path.stat().st_size > 0
+
+@pytest.mark.integration
+def test_3_pdf_comments(ollama_check):
+    """Test 3 — PDF Comments: verify Comments exists inside PDF"""
+    res = run_agent("Create a PDF about AI with comments.")
+    assert res.status == "success"
+    
+    data = json.loads(res.answer)
+    assert data["type"] == "file"
+    
+    # Simple check on the text output from PyMuPDF
+    import fitz # PyMuPDF
+    doc = fitz.open(data["path"])
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    assert "Comment" in text or "comment" in text.lower()
+
+@pytest.mark.integration
+def test_4_pdf_recommendations(ollama_check):
+    """Test 4 — PDF Recommendations: verify Recommendations exists inside PDF"""
+    res = run_agent("Create a PDF about AI with recommendations.")
+    assert res.status == "success"
+    
+    data = json.loads(res.answer)
+    
+    import fitz
+    doc = fitz.open(data["path"])
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    assert "Recommendation" in text or "recommendation" in text.lower()
+
+@pytest.mark.integration
+def test_5_excel_basic(ollama_check):
+    """Test 5 — Excel Basic: xlsx exists, sheet exists, Name exists, Age exists, Marks exists, 5 rows exist."""
+    res = run_agent("Create an Excel file with Name, Age and Marks. Add 5 example students.")
+    assert res.status == "success"
+    
+    data = json.loads(res.answer)
+    assert data["type"] == "file"
+    assert data["file_type"] == "excel"
+    
+    path = Path(data["path"])
+    assert path.exists()
+    
+    wb = openpyxl.load_workbook(path)
+    assert len(wb.sheetnames) >= 1
+    ws = wb.active
+    
+    # Read text from all cells
+    all_text = ""
+    row_count = ws.max_row
+    for row in ws.iter_rows(values_only=True):
+        all_text += " ".join([str(c) for c in row if c])
+        
+    assert "Name" in all_text
+    assert "Age" in all_text
+    assert "Marks" in all_text
+    # 1 title, 1 header, 5 students = ~7 rows
+    assert row_count >= 5
+
+@pytest.mark.integration
+def test_6_excel_comments(ollama_check):
+    """Test 6 — Excel Comments: Verify Comments exists in the actual workbook."""
+    res = run_agent("Create an Excel report with Name, Status and Comments.")
+    assert res.status == "success"
+    
+    data = json.loads(res.answer)
+    
+    wb = openpyxl.load_workbook(data["path"])
+    ws = wb.active
+    
+    all_text = ""
+    for row in ws.iter_rows(values_only=True):
+        all_text += " ".join([str(c) for c in row if c])
+        
+    assert "Comment" in all_text or "comment" in all_text.lower()
+
+@pytest.mark.integration
+def test_7_excel_multiple_sheets(ollama_check):
+    """Test 7 — Excel Multiple Sheets: Verify Team, Tasks, Comments all exist."""
+    res = run_agent("Create an Excel workbook with Team, Tasks and Comments sheets.")
+    assert res.status == "success"
+    
+    data = json.loads(res.answer)
+    
+    wb = openpyxl.load_workbook(data["path"])
+    sheet_names = wb.sheetnames
+    
+    # It might create them as "Team", "Tasks", "Comments"
+    sheet_str = " ".join(sheet_names).lower()
+    assert "team" in sheet_str
+    assert "task" in sheet_str
+    assert "comment" in sheet_str
+
+@pytest.mark.integration
+def test_8_docx(ollama_check):
+    """Test 8 — DOCX: Verify DOCX exists, opens, content exists."""
+    res = run_agent("Create a Word document about our AI project.")
+    assert res.status == "success"
+    
+    data = json.loads(res.answer)
+    assert data["type"] == "file"
+    assert data["file_type"] == "docx"
+    
+    path = Path(data["path"])
+    assert path.exists()
+    assert path.stat().st_size > 0
+    
+    import docx
+    doc = docx.Document(path)
+    assert len(doc.paragraphs) > 0

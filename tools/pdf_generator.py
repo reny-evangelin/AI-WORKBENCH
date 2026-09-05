@@ -69,113 +69,69 @@ def generate_pdf(data: dict, output_path: str) -> str:
     # Title
     story.append(
         Paragraph(
-            data.get("title", "Inspection Approval Note"),
+            data.get("title", "Engineering Report"),
             title_style,
         )
     )
 
-    # Equipment Details
-    story.append(
-        Paragraph("Equipment Details", heading_style)
-    )
-
-    equipment_data = [
-        ["Field", "Details"],
-        ["Equipment", data.get("equipment", "")],
-        ["Equipment Type", data.get("equipment_type", "")],
-        ["Location", data.get("location", "")],
-        ["Severity", data.get("severity", "")],
-    ]
-
-    equipment_table = Table(
-        equipment_data,
-        colWidths=[45 * mm, 115 * mm],
-    )
-
-    equipment_table.setStyle(
-        TableStyle(
-            [
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]
+    # Backward compatibility for old equipment table
+    if "equipment" in data:
+        story.append(Paragraph("Equipment Details", heading_style))
+        equipment_data = [
+            ["Field", "Details"],
+            ["Equipment", data.get("equipment", "")],
+            ["Equipment Type", data.get("equipment_type", "")],
+            ["Location", data.get("location", "")],
+            ["Severity", data.get("severity", "")],
+        ]
+        equipment_table = Table(equipment_data, colWidths=[45 * mm, 115 * mm])
+        equipment_table.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
         )
-    )
+        story.append(equipment_table)
+        story.append(Spacer(1, 8))
 
-    story.append(equipment_table)
-    story.append(Spacer(1, 8))
-
-    # Inspection Finding
-    story.append(
-        Paragraph("Inspection Finding", heading_style)
-    )
-    story.append(
-        Paragraph(
-            data.get("finding", ""),
-            body_style,
-        )
-    )
-
-    # AI Analysis
-    story.append(
-        Paragraph("AI Analysis", heading_style)
-    )
-    story.append(
-        Paragraph(
-            data.get("analysis", ""),
-            body_style,
-        )
-    )
-
-    # Recommended Action
-    story.append(
-        Paragraph("Recommended Action", heading_style)
-    )
-    story.append(
-        Paragraph(
-            data.get("recommendation", ""),
-            body_style,
-        )
-    )
-
-    # SOP / Knowledge Reference
-    story.append(
-        Paragraph("SOP / Knowledge Reference", heading_style)
-    )
-    story.append(
-        Paragraph(
-            data.get("sop_reference", ""),
-            body_style,
-        )
-    )
+    # Dynamic sections requested by the planner
+    sections = data.get("sections", [])
+    if sections:
+        for sec in sections:
+            story.append(Paragraph(str(sec.get("heading", "")), heading_style))
+            story.append(Paragraph(str(sec.get("content", "")), body_style))
+            story.append(Spacer(1, 5))
+    else:
+        # Fallback for old schema
+        if "finding" in data:
+            story.append(Paragraph("Inspection Finding", heading_style))
+            story.append(Paragraph(data.get("finding", ""), body_style))
+        if "analysis" in data:
+            story.append(Paragraph("AI Analysis", heading_style))
+            story.append(Paragraph(data.get("analysis", ""), body_style))
+        if "recommendation" in data:
+            story.append(Paragraph("Recommended Action", heading_style))
+            story.append(Paragraph(data.get("recommendation", ""), body_style))
+        if "sop_reference" in data:
+            story.append(Paragraph("SOP / Knowledge Reference", heading_style))
+            story.append(Paragraph(data.get("sop_reference", ""), body_style))
 
     # Source Traceability
-    story.append(
-        Paragraph("Source Traceability", heading_style)
-    )
-
-    source_document = data.get("source_document", "")
-    source_pages = data.get("source_pages", [])
-
-    story.append(
-        Paragraph(
-            f"Source Document: {source_document}",
-            body_style,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            f"Source Pages: {', '.join(map(str, source_pages))}",
-            body_style,
-        )
-    )
+    if "source_document" in data:
+        story.append(Paragraph("Source Traceability", heading_style))
+        source_document = data.get("source_document", "")
+        source_pages = data.get("source_pages", [])
+        story.append(Paragraph(f"Source Document: {source_document}", body_style))
+        story.append(Paragraph(f"Source Pages: {', '.join(map(str, source_pages))}", body_style))
 
     document.build(story)
 

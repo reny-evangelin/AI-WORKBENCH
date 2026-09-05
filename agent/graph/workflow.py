@@ -7,7 +7,9 @@ from langgraph.graph import StateGraph, START, END
 from .state import AgentState
 from .nodes import (
     validate_input,
+    detect_intent,
     plan_request,
+    generate_content,
     select_action,
     execute_tool_node,
     evaluate_result,
@@ -45,7 +47,9 @@ def build_agent_graph():
 
     # 1. Add nodes
     workflow.add_node("validate_input", validate_input)
+    workflow.add_node("detect_intent", detect_intent)
     workflow.add_node("plan_request", plan_request)
+    workflow.add_node("generate_content", generate_content)
     workflow.add_node("select_action", select_action)
     workflow.add_node("execute_tool_node", execute_tool_node)
     workflow.add_node("evaluate_result", evaluate_result)
@@ -60,11 +64,13 @@ def build_agent_graph():
         check_input_validity,
         {
             "invalid": END,
-            "valid": "plan_request",
+            "valid": "detect_intent",
         },
     )
 
-    workflow.add_edge("plan_request", "select_action")
+    workflow.add_edge("detect_intent", "plan_request")
+    workflow.add_edge("plan_request", "generate_content")
+    workflow.add_edge("generate_content", "select_action")
 
     workflow.add_conditional_edges(
         "select_action",
