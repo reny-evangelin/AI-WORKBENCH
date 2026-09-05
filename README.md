@@ -1,6 +1,6 @@
 # SIH117 — AI Engineering Assistant
 
-> **Smart India Hackathon 2025 | Team Project**
+> **Smart India Hackathon 2026 | Team Project**
 > A local AI-powered engineering assistant capable of analyzing P&ID drawings and engineering documents, reasoning over them, and generating professional reports.
 
 ---
@@ -51,8 +51,8 @@ Final Answer + Sources + Generated File → User
 | **Member 2** | 🧠 Brain — Main AI Agent | LLM agent, LangGraph workflow, intent understanding, planning, reasoning, validation, orchestration |
 | **Member 3** | 📚 Memory — RAG & Knowledge | Document ingestion, chunking, embeddings, vector database, knowledge retrieval |
 | **Member 4** | 🤝 Hands — App & Generation | Web application, PDF/DOCX/Excel generation, tool exposure, output handling |
-| **Member 5** | 🔗 Integration – System IntegrationConnect Vision + AI Agent + RAG + Generation modules, API integration, end-to-end workflow testing |
-| **Member 6** | 🧪 Testing – MVP ValidationEnd-to-end testing, test cases, input/output validation, UI testing, module integration verification, demo preparation|
+| **Member 5** | 🔗 Integration – System Integration| Connect Vision + AI Agent + RAG + Generation modules, API integration, end-to-end workflow testing |
+| **Member 6** | 🧪 Testing – MVP Validation| End-to-end testing, test cases, input/output validation, UI testing, module integration verification, demo |
 
 ---
 
