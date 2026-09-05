@@ -38,7 +38,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-from vision.ocr     import run_ocr, _get_engine, reset_engine
+from vision.ocr_subprocess import get_ocr_worker, reconstruct_ocr_result
 from vision.pid     import detect_pid_elements
 from vision.parser  import parse_pid_output
 from vision.schemas import PIDAnalysisResult, PIDAnalysisError
@@ -62,18 +62,26 @@ _ACCEPTED_EXT = frozenset({
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Initialise the PaddleOCR engine before the server accepts requests."""
-    logger.info("API startup: warming up OCR engine…")
-    try:
-        _get_engine(lang="en", enable_preprocessing=True)
-        logger.info("OCR engine ready.")
-    except Exception as exc:
-        # Log but do not crash — the /analyze-pid endpoint will surface the
-        # error per-request with a clear message.
-        logger.warning("OCR engine warm-up failed: %s — inference will fail per request.", exc)
+    """Start the OCR worker subprocess before the server accepts requests."""
+    logger.info("API startup: launching OCR worker subprocess…")
+    worker = get_ocr_worker()
+    # Trigger a lightweight warm-up ping — starts the subprocess and loads the model
+    # If it fails, the server still starts; /analyze-pid will return a clear error
+    test_result = worker.run_ocr("")   # empty path → fast failure inside worker
+    if test_result.get("success") is False and "worker" not in (test_result.get("error") or "").lower():
+        # Worker started but OCR failed on empty path — that's expected
+        logger.info("OCR worker subprocess ready.")
+    elif not worker._available:
+        logger.warning(
+            "OCR worker unavailable (likely DLL conflict on Windows). "
+            "P&ID analysis will return an error. All other features work normally."
+        )
+    else:
+        logger.info("OCR worker subprocess started.")
     yield
-    # Shutdown: nothing to clean up for the in-process singleton.
-    logger.info("API shutdown.")
+    # Shutdown: terminate the worker subprocess cleanly
+    logger.info("API shutdown: terminating OCR worker subprocess…")
+    worker.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -184,8 +192,10 @@ async def analyze_pid(
                 detail=f"Failed to save uploaded file: {exc}",
             )
 
-        # ── 3. OCR ───────────────────────────────────────────────────────────
-        ocr_result = run_ocr(tmp_path)
+        # ── 3. OCR (via subprocess to avoid WinError 127 DLL conflict) ────────
+        worker = get_ocr_worker()
+        raw = worker.run_ocr(tmp_path)
+        ocr_result = reconstruct_ocr_result(raw)
         if not ocr_result.success:
             error_msg = ocr_result.error or "OCR failed with unknown error"
             logger.error("OCR failed for upload '%s': %s", filename, error_msg)

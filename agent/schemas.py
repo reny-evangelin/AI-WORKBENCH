@@ -13,6 +13,10 @@ class AgentRequest(BaseModel):
         ...,
         description="User query or instruction for the AI Engineering Assistant.",
     )
+    image_path: Optional[str] = Field(
+        default=None,
+        description="Optional path to an uploaded image for vision processing."
+    )
 
     @field_validator("user_request")
     @classmethod
@@ -40,32 +44,55 @@ class AgentResponse(BaseModel):
     )
 
 
-class PlanStep(BaseModel):
-    """Single step in an agentic execution plan."""
+class ExcelFormula(BaseModel):
+    column: str = Field(..., description="The name of the column where the formula will be placed.")
+    formula: str = Field(..., description="The formula string, e.g., '=SUM(B{row}:D{row})'")
 
-    step: int = Field(..., description="Step index number.")
-    action: str = Field(..., description="Operational action to perform.")
-    purpose: str = Field(..., description="Objective or purpose of this step.")
+class ExcelSheetData(BaseModel):
+    name: str = Field(..., description="The name of the worksheet.")
+    columns: List[str] = Field(..., description="Ordered list of column header names.")
+    rows: List[Dict[str, Any]] = Field(..., description="Data rows mapped to column names.")
+    formulas: List[ExcelFormula] = Field(default_factory=list, description="Formulas to inject into rows.")
+
+class ExcelPlan(BaseModel):
+    filename: str = Field(..., description="A safe .xlsx filename based on the user request.")
+    title: Optional[str] = Field(default=None, description="Title of the report.")
+    sheets: List[ExcelSheetData] = Field(..., description="List of sheets to generate in the workbook.")
 
 
-class AgentDecision(BaseModel):
-    """Structured LLM planning decision returned by the reasoning brain."""
+class DocSection(BaseModel):
+    heading: str = Field(..., description="Section Name")
+    content: str = Field(..., description="Detailed paragraph content for the section")
 
-    intent: str = Field(..., description="Classified request intent.")
-    goal: str = Field(..., description="High-level goal statement.")
-    plan: List[PlanStep] = Field(
-        default_factory=list,
-        description="Structured operational plan steps.",
+class DocumentPlan(BaseModel):
+    title: str = Field(..., description="Document Title")
+    sections: List[DocSection] = Field(..., description="List of document sections.")
+
+
+class BrainDecision(BaseModel):
+    """Structured LLM planning decision returned by the central Brain."""
+    
+    intent: Literal["chat", "rag", "excel", "pdf", "docx", "error"] = Field(
+        ..., 
+        description="The type of action required."
     )
-    next_action: str = Field(
-        default="respond",
-        description="Immediate next action: respond, analyze_pid, search_knowledge, generate_pdf, generate_docx, generate_excel.",
+    
+    direct_response: Optional[str] = Field(
+        default=None, 
+        description="The direct answer to the user's question, populated ONLY if intent is 'chat'."
     )
-    tool_required: bool = Field(
-        default=False,
-        description="True if tool execution is required for the next action.",
+    
+    search_query: Optional[str] = Field(
+        default=None, 
+        description="The focused search query to retrieve information, populated ONLY if intent is 'rag'."
     )
-    tool_input: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Input parameters for the required tool.",
+    
+    excel_plan: Optional[ExcelPlan] = Field(
+        default=None, 
+        description="The complete structured plan for generating the Excel workbook, populated ONLY if intent is 'excel'."
+    )
+    
+    document_plan: Optional[DocumentPlan] = Field(
+        default=None, 
+        description="The structured plan for generating a PDF or DOCX document, populated ONLY if intent is 'pdf' or 'docx'."
     )

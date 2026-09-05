@@ -101,11 +101,14 @@ export default function ResultsPage() {
   async function downloadDocx() {
     setDownloading(true)
     try {
-      const blob = await generateDocx()
-      const url = URL.createObjectURL(blob)
+      const res = await generateDocx()
       const a = document.createElement('a')
-      a.href = url; a.download = 'AI_Workbench_Report.docx'; a.click()
-      URL.revokeObjectURL(url)
+      a.href = res.download_url
+      if (!res.file_name.toLowerCase().endsWith('.pdf')) {
+        a.download = res.file_name
+      }
+      a.target = '_blank'
+      a.click()
     } finally {
       setDownloading(false)
     }
@@ -209,17 +212,29 @@ export default function ResultsPage() {
                     </span>
                   </div>
                   <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.625rem' }}>{d.desc}</p>
-                  <button
-                    className="btn-secondary"
-                    style={{ width: '100%', justifyContent: 'center', fontSize: '0.8125rem', padding: '0.4rem' }}
-                    onClick={downloadDocx}
-                    disabled={downloading}
-                  >
-                    {downloading
-                      ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
-                      : <Download size={13} />}
-                    {d.fmt === 'DOCX' ? 'Download DOCX' : 'View Report'}
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.25rem' }}>
+                    <button
+                      className="btn-secondary"
+                      style={{ flex: 1, justifyContent: 'center', fontSize: '0.8125rem', padding: '0.4rem' }}
+                      onClick={downloadDocx}
+                      disabled={downloading}
+                    >
+                      {downloading
+                        ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                        : <Download size={13} />}
+                      Download
+                    </button>
+                    <button
+                      className="btn-secondary"
+                      style={{ flex: 1, justifyContent: 'center', fontSize: '0.8125rem', padding: '0.4rem' }}
+                      onClick={() => {
+                        import('../services/api').then(m => m.openFileOnSystem('Approval_Note.docx').catch(err => console.error(err)))
+                      }}
+                      title="Open file natively on your computer"
+                    >
+                      View Native
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

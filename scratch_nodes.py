@@ -5,10 +5,10 @@ import json
 import logging
 from typing import Dict, Any, List
 from langchain_core.prompts import PromptTemplate
-from .state import AgentState
-from ..chains import run_agent_request
-from ..tools import tool_registry
-from ..llm import get_llm
+from agent.graph.state import AgentState
+from agent.chains import run_agent_request
+from agent.tools import tool_registry
+from agent.llm import get_llm
 from utils.performance import track_performance
 
 MAX_ITERATIONS = 5
@@ -46,54 +46,6 @@ def validate_input(state: AgentState) -> Dict[str, Any]:
     }
 
 
-def process_vision(state: AgentState) -> Dict[str, Any]:
-    """Node: Runs vision processing on the uploaded image before reasoning."""
-    vision_input = state.get("vision_input")
-    if not vision_input:
-        return {}
-
-    logger.info(f"[VISION] Processing image: {vision_input}")
-    try:
-        from vision.ocr_subprocess import get_ocr_worker, reconstruct_ocr_result
-        from vision.pid import detect_pid_elements
-        from vision.parser import parse_pid_output
-        from vision.schemas import PIDAnalysisResult
-
-        worker = get_ocr_worker()
-        raw = worker.run_ocr(vision_input)
-        ocr_result = reconstruct_ocr_result(raw)
-
-        if not ocr_result.success:
-            logger.error(f"[VISION] OCR failed: {ocr_result.error}")
-            return {
-                "vision_result": {
-                    "success": False,
-                    "stage": "ocr",
-                    "error": ocr_result.error or "Unknown OCR failure"
-                }
-            }
-
-        pid_data = detect_pid_elements(ocr_result)
-        parsed = parse_pid_output(ocr_result, pid_data)
-        vision_res = PIDAnalysisResult.from_parser_dict(parsed, image_path=vision_input)
-
-        logger.info(f"[VISION] Successfully extracted {vision_res.total_elements} elements")
-        return {
-            "vision_result": vision_res.model_dump()
-        }
-    except Exception as e:
-        logger.error(f"[VISION] Processing failed: {str(e)}")
-        return {
-            "vision_result": {
-                "success": False,
-                "stage": "processing",
-                "error": str(e)
-            }
-        }
-
-
-
-
 def safe_json_parse(text: str) -> dict:
     """Helper to extract and parse JSON safely."""
     import re
@@ -123,14 +75,6 @@ def understand_request(state: AgentState) -> Dict[str, Any]:
     user_req = state.get("user_request", "")
     llm = get_llm()
     
-    vision_res = state.get("vision_result")
-    vision_context = ""
-    if vision_res:
-        vision_json = json.dumps(vision_res, indent=2)
-        # Escape curly braces for LangChain PromptTemplate
-        vision_json = vision_json.replace("{", "{{").replace("}", "}}")
-        vision_context = f"\n\nVISION ANALYSIS RESULT OF ATTACHED IMAGE:\n{vision_json}\nUse this information if the user asks about the image.\n"
-    
     prompt_text = (
         "You are the central brain of an AI Engineering Assistant.\n"
         "Analyze the user request and determine the exact intent: 'chat', 'rag', 'excel', 'pdf', or 'docx'.\n\n"
@@ -142,7 +86,7 @@ def understand_request(state: AgentState) -> Dict[str, Any]:
         "- IF asking to generate PDF/DOCX: intent = 'pdf' or 'docx' AND provide 'document_plan'. "
         "For document_plan, provide 'title' and 'sections' (with 'heading' and 'content').\n\n"
         "OUTPUT FORMAT: You MUST return ONLY a valid JSON object matching the 'BrainDecision' schema.\n\n"
-        f"User Request: {{request}}{vision_context}"
+        "User Request: {request}"
     )
     
     error_msg = ""
@@ -152,8 +96,7 @@ def understand_request(state: AgentState) -> Dict[str, Any]:
         try:
             current_prompt = prompt_text
             if error_msg:
-                safe_error = str(error_msg).replace("{", "{{").replace("}", "}}")
-                current_prompt += f"\n\nYOUR PREVIOUS OUTPUT FAILED WITH ERROR:\n{safe_error}\nYOU MUST FIX THE JSON SYNTAX ERROR AND RETURN ONLY VALID JSON!"
+                current_prompt += f"\n\nYOUR PREVIOUS OUTPUT FAILED WITH ERROR:\n{error_msg}\nYOU MUST FIX THE JSON SYNTAX ERROR AND RETURN ONLY VALID JSON!"
                 
             prompt = PromptTemplate.from_template(current_prompt)
             res = (prompt | llm).invoke({"request": user_req})
@@ -161,7 +104,7 @@ def understand_request(state: AgentState) -> Dict[str, Any]:
             decision_data = safe_json_parse(res.content)
             
             # Validate schema
-            from ..schemas import BrainDecision
+            from agent.schemas import BrainDecision
             validated = BrainDecision(**decision_data)
             
             logger.info(f"[AGENT] Intent detected: {validated.intent}")
@@ -184,7 +127,7 @@ def understand_request(state: AgentState) -> Dict[str, Any]:
 
 
 @track_performance("tool_routing_time")
-def select_action(state: AgentState) -> Dict[str, Any]:
+def route_action(state: AgentState) -> Dict[str, Any]:
     """Node: Selects immediate operational action from the BrainDecision."""
     decision = state.get("brain_decision", {})
     intent = decision.get("intent", "error")
@@ -216,23 +159,21 @@ def select_action(state: AgentState) -> Dict[str, Any]:
 @track_performance("tool_time")
 def execute_tool_node(state: AgentState) -> Dict[str, Any]:
     """Node: Safely executes registered tool from ToolRegistry."""
-    tool_name = state.get("tool_name") or ""
-    tool_input = state.get("tool_input") or {}
+    tool_name = state.get("tool_name")
+    tool_input = state.get("tool_input", {})
+
+    if not tool_name or not tool_registry.is_registered(tool_name):
+        return {
+            "tool_result": {
+                "success": False,
+                "error": f"Tool '{tool_name}' not found or unauthorized.",
+            }
+        }
 
     logger.info(f"[TOOL] {tool_name} started")
 
-    # Check for missing inputs before executing tool
-    if tool_name == "analyze_pid" and not tool_input.get("file_path"):
-        obs = {
-            "success": False,
-            "tool_name": tool_name,
-            "data": {},
-            "sources": [],
-            "error": "Missing required P&ID file path. Please provide the P&ID file.",
-        }
-    else:
-        result = tool_registry.execute_tool(tool_name, tool_input)
-        obs = result.model_dump()
+    result = tool_registry.execute_tool(tool_name, tool_input)
+    obs = result.model_dump()
         
     logger.info(f"[TOOL] {tool_name} completed, success: {obs.get('success')}")
 
@@ -252,7 +193,7 @@ def execute_tool_node(state: AgentState) -> Dict[str, Any]:
 
 
 def evaluate_result(state: AgentState) -> Dict[str, Any]:
-    """Node: Evaluates tool execution results and updates iteration counter / step progress."""
+    """Node: Evaluates tool execution results."""
     count = state.get("iteration_count", 0) + 1
     if count >= MAX_ITERATIONS:
         return {
@@ -261,8 +202,6 @@ def evaluate_result(state: AgentState) -> Dict[str, Any]:
             "response": "Execution stopped: maximum iteration limit (5) reached.",
         }
 
-    plan = state.get("plan", [])
-    current_step = state.get("current_step", 1)
     tool_res = state.get("tool_result", {})
 
     validation_result = None
@@ -289,26 +228,15 @@ def evaluate_result(state: AgentState) -> Dict[str, Any]:
             "response": error_msg,
         }
 
-    next_step = current_step + 1
-    if next_step > len(plan):
-        # All planned steps completed
-        return {
-            "iteration_count": count,
-            "status": "ready_to_finalize",
-            "validation_result": validation_result
-        }
-
     return {
         "iteration_count": count,
-        "current_step": next_step,
-        "status": "in_progress",
+        "status": "ready_to_finalize",
+        "validation_result": validation_result
     }
 
 
-from langchain_core.runnables import RunnableConfig
-
 @track_performance("llm_time")
-def synthesize_rag(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
+def synthesize_rag(state: AgentState) -> Dict[str, Any]:
     """Node: Synthesizes final answer from RAG context."""
     user_req = state.get("user_request", "")
     history = state.get("messages", [])
@@ -320,8 +248,7 @@ def synthesize_rag(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
         if context_str:
             prompt = f"Use the following context from your tools to answer the user's question.\n\nContext Information:\n{context_str}\n\nUser Question:\n{user_req}"
 
-    callbacks = config.get("callbacks")
-    res = run_agent_request(prompt, conversation_history=history, callbacks=callbacks)
+    res = run_agent_request(prompt, conversation_history=history)
 
     updated_messages = list(history)
     updated_messages.append({"role": "user", "content": user_req})
@@ -336,7 +263,7 @@ def synthesize_rag(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
 
 
 def finalize_agent_response(state: AgentState) -> Dict[str, Any]:
-    """Node: Normalizes final output state and formats multi-step tool observation summaries."""
+    """Node: Normalizes final output state."""
     
     # If the LLM just wanted to chat, return its direct response
     decision = state.get("brain_decision", {})
@@ -389,7 +316,7 @@ def finalize_agent_response(state: AgentState) -> Dict[str, Any]:
                     d_status = obs.get("data", {}).get("status") or obs.get("data", {}).get("summary") or "completed successfully"
                     summaries.append(f"[{t_name}]: {d_status}")
             else:
-                summaries.append(f"I couldn't generate the document.\n\nReason: {obs.get('error')}\n\nThe document-generation tool failed.")
+                summaries.append(f"I couldn't complete the task.\n\nReason: {obs.get('error')}")
 
         resp_text = "\n\n".join(summaries)
         status = "success" if any(o.get("success") for o in obs_list) else "error"

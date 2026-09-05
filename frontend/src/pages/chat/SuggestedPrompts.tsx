@@ -1,4 +1,4 @@
-﻿// src/pages/chat/SuggestedPrompts.tsx
+// src/pages/chat/SuggestedPrompts.tsx
 
 interface SuggestedPromptsProps {
   onSelect: (prompt: string) => void

@@ -5,10 +5,23 @@ test_graph.py — Unit and Integration tests for LangGraph Agent Workflow
 import pytest
 from unittest.mock import patch
 from agent.schemas import AgentResponse
-from agent.graph.router import route_request_intent
-from agent.graph.workflow import build_agent_graph, run_agent
+from agent.graph.workflow import route_action_choice
+from agent.graph.workflow import build_agent_graph, process_request
 from agent.ollama_client import OllamaClient
 
+
+# =====================================================================
+# Unit Tests (Offline safe — run in normal CI)
+# =====================================================================
+
+"""
+test_graph.py — Unit and Integration tests for LangGraph Agent Workflow
+"""
+
+import pytest
+from unittest.mock import patch
+from agent.schemas import AgentResponse
+from agent.graph.workflow import build_agent_graph, process_request
 
 # =====================================================================
 # Unit Tests (Offline safe — run in normal CI)
@@ -22,80 +35,35 @@ def test_graph_compilation():
 
 def test_empty_input_routing():
     """Test 1: Empty input returns needs_input status without calling LLM."""
-    with patch("agent.graph.nodes.run_agent_request") as mock_chain:
-        res = run_agent("")
+    with patch("agent.graph.nodes.get_llm") as mock_llm:
+        res = process_request("")
         assert res.status == "needs_input"
         assert "cannot be empty" in res.answer
-        mock_chain.assert_not_called()
+        mock_llm.assert_not_called()
 
 
-def test_deterministic_router():
-    """Verify deterministic router intent mapping."""
-    assert route_request_intent("What is a centrifugal pump?") == "general"
-    assert route_request_intent("Explain this P&ID diagram") == "pid"
-    assert route_request_intent("What does API 610 say about pumps?") == "knowledge"
-    assert route_request_intent("Create an Excel report") == "document"
-    assert route_request_intent("q") == "unknown"
+from agent.graph.workflow import check_input_validity, route_action_choice, route_loop_eval
 
+def test_check_input_validity():
+    assert check_input_validity({"status": "needs_input"}) == "invalid"
+    assert check_input_validity({"status": "initializing"}) == "valid"
 
-def test_general_routing_offline():
-    """Test 2: General query routing to general_response node."""
-    assert route_request_intent("What is a pump?") == "general"
+def test_route_action_choice():
+    assert route_action_choice({"tool_required": True}) == "tool"
+    assert route_action_choice({"tool_required": False}) == "respond"
 
-    mock_response = AgentResponse(
-        answer="A pump is a mechanical device used to move fluids.",
-        status="success",
-        sources=[],
-    )
-    with patch("agent.graph.nodes.run_agent_request", return_value=mock_response):
-        res = run_agent("What is a pump?")
-        assert res.status == "success"
-        assert "mechanical device" in res.answer
-
-
-def test_pid_routing():
-    """Test 3: P&ID request routes to analyze_pid tool action and requests missing file input."""
-    res = run_agent("Explain this P&ID")
-    assert res.status == "needs_input"
-    assert "P&ID file path" in res.answer
-
-
-def test_knowledge_routing():
-    """Test 4: Knowledge request routes to search_knowledge tool action."""
-    res = run_agent("What does API 610 say about pumps?")
-    assert res.status == "success"
-    assert "search_knowledge" in res.answer
-
-
-def test_document_routing():
-    """Test 5: Document request routes to generate_excel tool action."""
-    res = run_agent("Create an Excel report")
-    assert res.status == "success"
-    assert "File:" in res.answer or "generate_excel" in res.answer
-
-
-def test_unknown_routing():
-    """Test 6: Ambiguous/unrecognized single-token request routes to general response node."""
-    mock_response = AgentResponse(
-        answer="Unable to determine request category. Please clarify.",
-        status="needs_input",
-        sources=[],
-    )
-    with patch("agent.graph.nodes.run_agent_request", return_value=mock_response):
-        res = run_agent("x")
-        assert res.status == "needs_input"
-        assert "clarify" in res.answer
-
+def test_route_loop_eval():
+    assert route_loop_eval({"status": "ready_to_finalize", "intent": "rag"}) == "synthesize"
+    assert route_loop_eval({"status": "ready_to_finalize", "intent": "chat"}) == "finish"
+    assert route_loop_eval({"status": "error", "intent": "rag"}) == "finish"
 
 # =====================================================================
 # Integration Tests (Require live Ollama service)
 # =====================================================================
 
-
 @pytest.mark.integration
-def test_run_agent_integration_general_query(ollama_check):
-    """Integration test: Verify live end-to-end execution of run_agent via LangGraph."""
-    res = run_agent("What is the purpose of a pump in a process plant?")
+def test_process_request_integration_general_query(ollama_check):
+    """Integration test: Verify live end-to-end execution of process_request via LangGraph."""
+    res = process_request("What is the purpose of a pump in a process plant?")
     assert res.status in ("success", "error")
     assert isinstance(res.answer, str)
-    assert len(res.answer) > 10

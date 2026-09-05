@@ -1,28 +1,29 @@
 """
-workflow.py — LangGraph Agentic Workflow Construction and Public Entrypoint
+workflow.py — LangGraph Orchestration for Member 2 Agent
 """
-
-from typing import Optional, List, Dict, Any
+import logging
 from langgraph.graph import StateGraph, START, END
 from .state import AgentState
 from .nodes import (
     validate_input,
-    detect_intent,
-    plan_request,
-    generate_content,
+    process_vision,
+    understand_request,
     select_action,
     execute_tool_node,
     evaluate_result,
-    general_response,
+    synthesize_rag,
     finalize_agent_response,
 )
-from ..schemas import AgentResponse
+
+logger = logging.getLogger("agent")
 
 
-def check_input_validity(state: AgentState) -> str:
+def route_after_validation(state: AgentState) -> str:
     """Conditional router following input validation."""
     if state.get("status") == "needs_input":
         return "invalid"
+    if state.get("vision_input"):
+        return "vision"
     return "valid"
 
 
@@ -35,25 +36,28 @@ def route_action_choice(state: AgentState) -> str:
 
 def route_loop_eval(state: AgentState) -> str:
     """Conditional router following evaluation of tool execution results."""
+    intent = state.get("intent", "")
     st = state.get("status")
-    if st == "in_progress":
-        return "next_step"
+    
+    # If the intent requires synthesizing the RAG output with an LLM
+    if st == "ready_to_finalize" and intent == "rag":
+        return "synthesize"
+        
     return "finish"
 
 
 def build_agent_graph():
-    """Constructs and compiles the Member 2 LangGraph Agentic Reason → Act → Observe Workflow."""
+    """Constructs and compiles the unified 1-LLM-call LangGraph Workflow."""
     workflow = StateGraph(AgentState)
 
     # 1. Add nodes
     workflow.add_node("validate_input", validate_input)
-    workflow.add_node("detect_intent", detect_intent)
-    workflow.add_node("plan_request", plan_request)
-    workflow.add_node("generate_content", generate_content)
+    workflow.add_node("process_vision", process_vision)
+    workflow.add_node("understand_request", understand_request)
     workflow.add_node("select_action", select_action)
     workflow.add_node("execute_tool_node", execute_tool_node)
     workflow.add_node("evaluate_result", evaluate_result)
-    workflow.add_node("general_response", general_response)
+    workflow.add_node("synthesize_rag", synthesize_rag)
     workflow.add_node("finalize_agent_response", finalize_agent_response)
 
     # 2. Add edges and conditional routing
@@ -61,24 +65,24 @@ def build_agent_graph():
 
     workflow.add_conditional_edges(
         "validate_input",
-        check_input_validity,
+        route_after_validation,
         {
-            "invalid": END,
-            "valid": "detect_intent",
-        },
+            "invalid": "finalize_agent_response",
+            "vision": "process_vision",
+            "valid": "understand_request"
+        }
     )
 
-    workflow.add_edge("detect_intent", "plan_request")
-    workflow.add_edge("plan_request", "generate_content")
-    workflow.add_edge("generate_content", "select_action")
+    workflow.add_edge("process_vision", "understand_request")
+    workflow.add_edge("understand_request", "select_action")
 
     workflow.add_conditional_edges(
         "select_action",
         route_action_choice,
         {
             "tool": "execute_tool_node",
-            "respond": "general_response",
-        },
+            "respond": "finalize_agent_response"
+        }
     )
 
     workflow.add_edge("execute_tool_node", "evaluate_result")
@@ -87,58 +91,61 @@ def build_agent_graph():
         "evaluate_result",
         route_loop_eval,
         {
-            "next_step": "select_action",
-            "finish": "finalize_agent_response",
-        },
+            "synthesize": "synthesize_rag",
+            "finish": "finalize_agent_response"
+        }
     )
 
-    workflow.add_edge("general_response", "finalize_agent_response")
+    workflow.add_edge("synthesize_rag", "finalize_agent_response")
     workflow.add_edge("finalize_agent_response", END)
 
     return workflow.compile()
 
-
 # Singleton compiled graph instance
 agent_graph = build_agent_graph()
 
+def process_request(user_request: str, image_path: str = None, callbacks=None, conversation_history=None):
+    from ..schemas import AgentResponse
+    logger.info(f"--- STARTING REQUEST PROCESS: {user_request} ---")
 
-def run_agent(
-    user_request: str,
-    conversation_history: Optional[List[Dict[str, str]]] = None,
-) -> AgentResponse:
-    """Public application entrypoint for executing the Member 2 Agentic LangGraph workflow.
-
-    Supports optional conversation_history list of dicts: [{'role': 'user'|'assistant', 'content': '...'}]
-    Returns a structured AgentResponse instance.
-    """
-    initial_state: AgentState = {
-        "user_request": user_request,
-        "status": "pending",
-        "route": None,
-        "intent": None,
-        "plan": [],
-        "current_step": 0,
-        "tool_name": None,
-        "tool_input": None,
-        "tool_result": None,
-        "observations": [],
-        "context": None,
-        "messages": list(conversation_history) if conversation_history else [],
-        "response": None,
-        "sources": [],
-        "tool_required": False,
-        "error": None,
-        "iteration_count": 0,
-    }
-
-    final_state = agent_graph.invoke(initial_state)
-
-    ans = final_state.get("response") or "No response generated."
-    st = final_state.get("status") or "success"
-    src = final_state.get("sources") or []
-
-    return AgentResponse(
-        answer=ans,
-        status=st,
-        sources=src,
+    initial_state = AgentState(
+        user_request=user_request,
+        vision_input=image_path,
+        vision_result=None,
+        status="initializing",
+        intent=None,
+        tool_required=False,
+        messages=list(conversation_history) if conversation_history else [],
+        sources=[],
+        observations=[],
+        iteration_count=0,
+        error=None,
+        metrics={},
+        brain_decision={}
     )
+
+    try:
+        final_state = agent_graph.invoke(
+            initial_state, 
+            config={"recursion_limit": 25, "callbacks": callbacks}
+        )
+        
+        # Log performance
+        metrics = final_state.get("metrics", {})
+        total_time = sum(metrics.values())
+        logger.info(f"--- REQUEST COMPLETE in {total_time:.1f}ms ---")
+        if metrics:
+            logger.info(f"Metrics: {metrics}")
+            
+        return AgentResponse(
+            answer=final_state.get("response", "No answer generated."),
+            status=final_state.get("status", "error"),
+            sources=final_state.get("sources", [])
+        )
+    except Exception as e:
+        logger.error(f"Graph execution failed: {e}", exc_info=True)
+        return AgentResponse(
+            answer=f"A critical system error occurred during execution: {str(e)}",
+            status="error",
+            sources=[]
+        )

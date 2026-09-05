@@ -101,12 +101,19 @@ class MainWindow(QMainWindow):
         # Override keyPressEvent to handle Enter without Shift
         self.chat_input.keyPressEvent = self._handle_input_keypress
 
+        self.attach_btn = QPushButton("📎")
+        self.attach_btn.setObjectName("secondary_button")
+        self.attach_btn.setFixedHeight(80)
+        self.attach_btn.setFixedWidth(50)
+        self.attach_btn.clicked.connect(self._attach_image)
+
         self.send_btn = QPushButton("Send")
         self.send_btn.setObjectName("primary_button")
         self.send_btn.setFixedHeight(80)
         self.send_btn.setFixedWidth(80)
         self.send_btn.clicked.connect(self.send_message)
 
+        input_layout.addWidget(self.attach_btn)
         input_layout.addWidget(self.chat_input)
         input_layout.addWidget(self.send_btn)
 
@@ -169,29 +176,62 @@ class MainWindow(QMainWindow):
         else:
             QTextEdit.keyPressEvent(self.chat_input, event)
 
+    def _attach_image(self):
+        from PySide6.QtWidgets import QFileDialog
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "Images (*.png *.jpg *.jpeg *.bmp *.tiff *.webp)")
+        if file_path:
+            self.attached_image_path = file_path
+            self._append_system_message(f"Attached image: {file_path}")
+
     def send_message(self):
         text = self.chat_input.toPlainText().strip()
         if not text:
             return
 
         self._append_user_message(text)
+        if hasattr(self, 'attached_image_path') and self.attached_image_path:
+            self._append_system_message(f"Sent with attached image: {self.attached_image_path}")
+            
         self.chat_input.clear()
         
         # Disable input while processing
         self.chat_input.setDisabled(True)
         self.send_btn.setDisabled(True)
+        self.attach_btn.setDisabled(True)
+        self.is_streaming_now = False
+        
+        image_to_send = getattr(self, 'attached_image_path', None)
+        self.attached_image_path = None
 
-        self.chat_thread = ChatThread(text, list(self.history), self)
+        self.chat_thread = ChatThread(text, list(self.history), image_path=image_to_send, parent=self)
+        self.chat_thread.token_ready.connect(self._on_token_received)
         self.chat_thread.response_ready.connect(self._on_agent_response)
         self.chat_thread.error_occurred.connect(self._on_agent_error)
         self.chat_thread.start()
 
+    def _on_token_received(self, token):
+        if not getattr(self, "is_streaming_now", False):
+            self.is_streaming_now = True
+            self.chat_display.append("<b style='color: #00b894;'>AI:</b>")
+            
+        self.chat_display.moveCursor(QTextCursor.End)
+        self.chat_display.insertPlainText(token)
+        self._scroll_to_bottom()
+
     def _on_agent_response(self, status, text, sources):
         self.chat_input.setDisabled(False)
         self.send_btn.setDisabled(False)
+        self.attach_btn.setDisabled(False)
         self.chat_input.setFocus()
         
-        self._append_agent_message(text, sources)
+        if getattr(self, "is_streaming_now", False):
+            if sources:
+                sources_text = ", ".join(sources)
+                self.chat_display.append(f"<small style='color: #a0a0ab;'><i>Sources: {sources_text}</i></small><br>")
+            self.chat_display.append("<br>")
+            self.is_streaming_now = False
+        else:
+            self._append_agent_message(text, sources)
         
         # Update history
         # We need to grab the last user input which is at the end of the history?
@@ -206,6 +246,7 @@ class MainWindow(QMainWindow):
     def _on_agent_error(self, error_msg):
         self.chat_input.setDisabled(False)
         self.send_btn.setDisabled(False)
+        self.attach_btn.setDisabled(False)
         self.chat_input.setFocus()
         self._append_system_message(f"Error: {error_msg}")
 

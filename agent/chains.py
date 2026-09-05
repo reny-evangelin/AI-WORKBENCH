@@ -50,6 +50,7 @@ def run_agent_request(
     config: Optional[Settings] = None,
     conversation_history: Optional[List[Union[Dict[str, str], BaseMessage]]] = None,
     max_history_messages: int = 10,
+    callbacks=None,
 ) -> AgentResponse:
     """Application-level entrypoint for processing user queries with optional conversation history.
 
@@ -88,7 +89,8 @@ def run_agent_request(
             {
                 "user_request": clean_text,
                 "history": history_messages,
-            }
+            },
+            config={"callbacks": callbacks, "tags": ["stream_answer"]}
         )
         return AgentResponse(
             answer=str(result_text).strip(),

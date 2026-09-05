@@ -51,6 +51,12 @@ def route_request_intent(user_request: str) -> str:
         "regulation",
         "according to",
         "code requirement",
+        "infra data",
+        "inra data",
+        "internal data",
+        "knowledge base",
+        "database",
+        "search knowledge"
     ]
     if any(kw in text for kw in knowledge_keywords):
         return "knowledge"

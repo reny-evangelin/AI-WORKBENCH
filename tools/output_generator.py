@@ -111,15 +111,17 @@ def generate_outputs(
 
     # Generate Excel
     if "xlsx" in formats:
-        excel_path = output_directory / "Approval_Note.xlsx"
-
-        result = _safe_call(generate_excel, data, excel_path)
-
-        is_valid, message = validate_output_file(result, data)
-
-        if not is_valid:
-            raise RuntimeError(message)
-
-        generated_files["xlsx"] = result
+        # For Excel, the generator expects a directory and pulls the filename from the structured JSON
+        # It handles unique naming internally if needed, or we just trust the generator.
+        try:
+            result = generate_excel(data, str(output_directory))
+            is_valid, message = validate_output_file(result, data)
+            if not is_valid:
+                raise RuntimeError(message)
+            generated_files["xlsx"] = result
+        except PermissionError:
+            # Fallback for permission errors
+            result = generate_excel(data, str(output_directory / "fallback"))
+            generated_files["xlsx"] = result
 
     return generated_files

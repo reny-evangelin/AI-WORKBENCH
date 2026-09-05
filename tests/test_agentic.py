@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import patch
 import json
 from pathlib import Path
-from agent import run_agent, tool_registry
+from agent import process_request, tool_registry
 from agent.tools import ToolResult
 from agent.graph.nodes import execute_tool_node, evaluate_result
 import openpyxl
@@ -56,7 +56,7 @@ def test_10_invalid_excel_data():
 @pytest.mark.integration
 def test_1_normal_chat(ollama_check):
     """Test 1 — Normal Chat: hello -> intent=general, no document tool"""
-    res = run_agent("hello")
+    res = process_request("hello")
     assert res.status == "success"
     # Should be a normal response, not a JSON file object
     try:
@@ -68,7 +68,7 @@ def test_1_normal_chat(ollama_check):
 @pytest.mark.integration
 def test_2_pdf(ollama_check):
     """Test 2 — PDF: Create a PDF report about AI -> generate_pdf, real PDF"""
-    res = run_agent("Create a PDF report about AI.")
+    res = process_request("Create a PDF report about AI.")
     assert res.status == "success"
     
     data = json.loads(res.answer)
@@ -82,7 +82,7 @@ def test_2_pdf(ollama_check):
 @pytest.mark.integration
 def test_3_pdf_comments(ollama_check):
     """Test 3 — PDF Comments: verify Comments exists inside PDF"""
-    res = run_agent("Create a PDF about AI with comments.")
+    res = process_request("Create a PDF about AI with comments.")
     assert res.status == "success"
     
     data = json.loads(res.answer)
@@ -99,7 +99,7 @@ def test_3_pdf_comments(ollama_check):
 @pytest.mark.integration
 def test_4_pdf_recommendations(ollama_check):
     """Test 4 — PDF Recommendations: verify Recommendations exists inside PDF"""
-    res = run_agent("Create a PDF about AI with recommendations.")
+    res = process_request("Create a PDF about AI with recommendations.")
     assert res.status == "success"
     
     data = json.loads(res.answer)
@@ -114,7 +114,7 @@ def test_4_pdf_recommendations(ollama_check):
 @pytest.mark.integration
 def test_5_excel_basic(ollama_check):
     """Test 5 — Excel Basic: xlsx exists, sheet exists, Name exists, Age exists, Marks exists, 5 rows exist."""
-    res = run_agent("Create an Excel file with Name, Age and Marks. Add 5 example students.")
+    res = process_request("Create an Excel file with Name, Age and Marks. Add 5 example students.")
     assert res.status == "success"
     
     data = json.loads(res.answer)
@@ -143,7 +143,7 @@ def test_5_excel_basic(ollama_check):
 @pytest.mark.integration
 def test_6_excel_comments(ollama_check):
     """Test 6 — Excel Comments: Verify Comments exists in the actual workbook."""
-    res = run_agent("Create an Excel report with Name, Status and Comments.")
+    res = process_request("Create an Excel report with Name, Status and Comments.")
     assert res.status == "success"
     
     data = json.loads(res.answer)
@@ -160,7 +160,7 @@ def test_6_excel_comments(ollama_check):
 @pytest.mark.integration
 def test_7_excel_multiple_sheets(ollama_check):
     """Test 7 — Excel Multiple Sheets: Verify Team, Tasks, Comments all exist."""
-    res = run_agent("Create an Excel workbook with Team, Tasks and Comments sheets.")
+    res = process_request("Create an Excel workbook with Team, Tasks and Comments sheets.")
     assert res.status == "success"
     
     data = json.loads(res.answer)
@@ -177,7 +177,7 @@ def test_7_excel_multiple_sheets(ollama_check):
 @pytest.mark.integration
 def test_8_docx(ollama_check):
     """Test 8 — DOCX: Verify DOCX exists, opens, content exists."""
-    res = run_agent("Create a Word document about our AI project.")
+    res = process_request("Create a Word document about our AI project.")
     assert res.status == "success"
     
     data = json.loads(res.answer)

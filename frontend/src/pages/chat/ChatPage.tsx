@@ -74,22 +74,31 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isTyping])
 
-  async function handleSend(text: string) {
+  async function handleSend(text: string, file?: File | null) {
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: 'user',
-      content: text,
+      content: file ? `${text}\n*(Attached File: ${file.name})*` : text,
       timestamp: new Date(),
     }
     setMessages((prev) => [...prev, userMsg])
     setIsTyping(true)
 
     try {
-      const replyText = await sendChatMessage(text)
+      const replyText = await sendChatMessage(text, file)
       const assistantMsg: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
         content: replyText,
+        timestamp: new Date(),
+      }
+      setMessages((prev) => [...prev, assistantMsg])
+    } catch (err) {
+      console.error(err)
+      const assistantMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `**Error**: Failed to connect to the backend API. Please make sure the backend is running.`,
         timestamp: new Date(),
       }
       setMessages((prev) => [...prev, assistantMsg])

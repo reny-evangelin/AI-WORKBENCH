@@ -16,6 +16,9 @@ def test_get_llm_defaults():
 
 def test_get_llm_custom_config():
     """Verify get_llm creates ChatOllama with custom Settings instance."""
+    import agent.llm
+    agent.llm._llm_instance = None
+    
     cfg = Settings()
     cfg.ollama_model = "custom-model"
     cfg.ollama_base_url = "http://127.0.0.1:11434"
@@ -25,3 +28,5 @@ def test_get_llm_custom_config():
     assert llm.model == "custom-model"
     assert llm.base_url == "http://127.0.0.1:11434"
     assert llm.temperature == 0.7
+    
+    agent.llm._llm_instance = None

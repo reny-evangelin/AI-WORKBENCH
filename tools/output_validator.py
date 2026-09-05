@@ -11,16 +11,15 @@ def validate_analysis_data(data: dict) -> tuple[bool, list[str]]:
     if not isinstance(data, dict):
         return False, ["Analysis data must be a dictionary."]
 
-    if "title" not in data:
-        errors.append("Missing required field: title")
-
     has_sections = "sections" in data
     has_sheets = "sheets" in data
-
+    
     if not has_sections and not has_sheets:
         errors.append("Data must contain either 'sections' (for PDF/DOCX) or 'sheets' (for Excel).")
 
     if has_sections:
+        if "title" not in data:
+            errors.append("Missing required field: title")
         if not isinstance(data["sections"], list):
             errors.append("Field 'sections' must be a list.")
         else:
@@ -32,15 +31,44 @@ def validate_analysis_data(data: dict) -> tuple[bool, list[str]]:
                     errors.append(f"Section {idx} must have 'heading' and 'content'.")
 
     if has_sheets:
+        if "filename" not in data:
+            errors.append("Missing required field: filename for Excel generation")
         if not isinstance(data["sheets"], list):
             errors.append("Field 'sheets' must be a list.")
         else:
+            sheet_names = set()
             for idx, sheet in enumerate(data["sheets"]):
                 if not isinstance(sheet, dict):
                     errors.append(f"Sheet {idx} must be a dictionary.")
                     continue
-                if "name" not in sheet or "columns" not in sheet:
-                    errors.append(f"Sheet {idx} must have 'name' and 'columns'.")
+                if "name" not in sheet or "columns" not in sheet or "rows" not in sheet:
+                    errors.append(f"Sheet {idx} must have 'name', 'columns', and 'rows'.")
+                    continue
+                    
+                name = sheet["name"]
+                if not name or len(str(name)) > 31:
+                    errors.append(f"Sheet {idx} name is invalid (empty or >31 chars).")
+                if name in sheet_names:
+                    errors.append(f"Duplicate sheet name: {name}")
+                sheet_names.add(name)
+                
+                columns = sheet["columns"]
+                if not columns or not isinstance(columns, list):
+                    errors.append(f"Sheet {idx} must have at least one column in a list.")
+                elif len(set(columns)) != len(columns):
+                    errors.append(f"Sheet {idx} has duplicate columns.")
+                    
+                rows = sheet["rows"]
+                if not isinstance(rows, list):
+                    errors.append(f"Sheet {idx} 'rows' must be a list of dictionaries.")
+                else:
+                    for r_idx, r in enumerate(rows):
+                        if not isinstance(r, dict):
+                            errors.append(f"Sheet {idx} row {r_idx} must be a dictionary.")
+                            
+                formulas = sheet.get("formulas", [])
+                if not isinstance(formulas, list):
+                    errors.append(f"Sheet {idx} 'formulas' must be a list.")
 
     return len(errors) == 0, errors
 

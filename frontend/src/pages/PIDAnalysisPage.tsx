@@ -2,7 +2,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Upload, ScanLine, Cpu, Tag, BarChart3,
+  Upload, ScanLine, Cpu, Tag,
   CheckCircle, Loader2, ChevronRight, ArrowDown,
 } from 'lucide-react'
 import { analyzePID } from '../services/api'

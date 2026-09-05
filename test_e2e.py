@@ -1,4 +1,4 @@
-from agent import run_agent
+from agent import process_request
 
 request = """
 Create an Excel document report about AI systems.
@@ -9,7 +9,7 @@ Include:
 """
 
 print(f"Running E2E test with request:\n{request}\n")
-res = run_agent(request)
+res = process_request(request)
 
 print(f"Status: {res.status}")
 print(f"Response:\n{res.answer}")

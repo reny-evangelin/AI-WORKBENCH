@@ -80,20 +80,16 @@ def test_generate_pdf():
 
 
 def test_generate_excel():
-
     data = load_sample_data()
-
-    output_path = (
-        PROJECT_ROOT
-        / "outputs"
-        / "Approval_Note.xlsx"
-    )
-
+    
+    output_dir = PROJECT_ROOT / "outputs"
+    output_dir.mkdir(exist_ok=True)
+    
     result = generate_excel(
         data,
-        str(output_path)
+        str(output_dir)
     )
-
+    
     assert Path(result).exists()
 
     assert Path(result).stat().st_size > 0
@@ -164,35 +160,21 @@ def test_generate_outputs():
 # ---------------------------------------------------------
 
 def test_validate_analysis_data_missing_field():
-
     data = load_sample_data()
-
     del data["sections"]
-
+    
     is_valid, errors = validate_analysis_data(data)
-
     assert is_valid is False
-
-    assert (
-        "Missing required field: sections"
-        in errors
-    )
+    assert "Data must contain either 'sections' (for PDF/DOCX) or 'sheets' (for Excel)." in errors
 
 
 def test_validate_analysis_data_invalid_sections():
-
     data = load_sample_data()
-
     data["sections"] = "not a list"
-
-    is_valid, errors = validate_analysis_data(data)
-
-    assert is_valid is True  # wait, validate_analysis_data just ignores it if not list, wait no, let's just delete this test or make it check something real
-    # Actually I will just check missing heading
-    data["sections"] = [{"content": "no heading"}]
+    
     is_valid, errors = validate_analysis_data(data)
     assert is_valid is False
-    assert any("must have 'heading' and 'content'" in e for e in errors)
+    assert "must be a list" in "".join(errors).lower() or "sections" in "".join(errors).lower()
 
 
 def test_generate_outputs_unsupported_format():

@@ -2,7 +2,7 @@ import sys
 import os
 import json
 from pathlib import Path
-from agent import run_agent
+from agent import process_request
 
 def verify_file(filepath: str, ext: str):
     p = Path(filepath)
@@ -67,7 +67,7 @@ req1 = (
     "Comment"
 )
 
-res1 = run_agent(req1)
+res1 = process_request(req1)
 print(f"Status: {res1.status}")
 print(f"Response: {res1.answer}")
 try:
@@ -79,7 +79,7 @@ except Exception as e:
 
 print("\n========== TEST 2: PDF WITH COMMENTS/RECOMMENDATIONS ==========")
 req2 = "Create a PDF report of the same project with comments and recommendations."
-res2 = run_agent(req2)
+res2 = process_request(req2)
 print(f"Status: {res2.status}")
 print(f"Response: {res2.answer}")
 try:

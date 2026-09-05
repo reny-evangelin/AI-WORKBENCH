@@ -7,8 +7,8 @@
 
 import type { PIDAnalysisResult, KnowledgeResult, AnalysisReport, Finding } from '../types'
 
-const API_BASE = '/api'
-const USE_MOCK = true // set false when real FastAPI backend is running
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001'
+const USE_MOCK = false // set false when real FastAPI backend is running
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -206,15 +206,23 @@ export async function generateReport(context: {
   return res.json()
 }
 
-export async function generateDocx(): Promise<Blob> {
+export async function generateDocx(): Promise<{ file_name: string; download_url: string; status: string }> {
   if (USE_MOCK) {
     await sleep(1200)
-    const content = `AI WORKBENCH — ANALYSIS REPORT\nGenerated: ${new Date().toLocaleString()}\n\nThis is a sample DOCX export from the AI Workbench.\n`
-    return new Blob([content], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+    return { file_name: "Mock_Report.docx", download_url: "#", status: "success" }
   }
   const res = await fetch(`${API_BASE}/generate-document`, { method: 'POST' })
   if (!res.ok) throw new Error(`DOCX generation failed: ${res.statusText}`)
-  return res.blob()
+  const data = await res.json()
+  if (data.download_url && data.download_url.startsWith('/')) {
+    data.download_url = `${API_BASE}${data.download_url}`
+  }
+  return data
+}
+
+export async function openFileOnSystem(filename: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/open-file?filename=${encodeURIComponent(filename)}`)
+  if (!res.ok) throw new Error(`Failed to open file: ${res.statusText}`)
 }
 
 // ── Chat / AI Assistant ───────────────────────────────────────────────────────
@@ -263,20 +271,55 @@ const MOCK_CHAT_RESPONSES: Array<{ pattern: RegExp; response: string }> = [
 const FALLBACK_CHAT_RESPONSE =
   "I've noted your query. As a local AI assistant I'm currently operating with mock data. I can help with:\n\n• P&ID diagram analysis and tag extraction\n• Knowledge base search and SOP lookup\n• Document summarization and review\n• Maintenance report generation\n• Equipment and instrument queries\n\nFor live AI responses, connect Member 2's agent backend via the /api/chat endpoint. What else can I help you with?"
 
-export async function sendChatMessage(userMessage: string): Promise<string> {
+export async function sendChatMessage(userMessage: string, file?: File | null): Promise<string> {
   if (USE_MOCK) {
     await sleep(900 + Math.random() * 800)
     const match = MOCK_CHAT_RESPONSES.find((r) => r.pattern.test(userMessage))
     return match ? match.response : FALLBACK_CHAT_RESPONSE
   }
-  // ── Real backend connection point ──────────────────────────────────────────
-  // Replace this block when Member 2's agent API is ready.
+
+  const form = new FormData()
+  form.append('message', userMessage)
+
+  if (file) {
+    form.append('file', file)
+
+    // Determine input_type and file_type from the File object — no LLM needed
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+    const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp']
+    const inputType = IMAGE_EXTS.includes(ext)
+      ? 'image'
+      : ext === 'pdf'
+      ? 'pdf'
+      : ext === 'docx'
+      ? 'docx'
+      : ext === 'xlsx'
+      ? 'xlsx'
+      : ext === 'csv'
+      ? 'csv'          // backend will reject this with a clear error
+      : ext === 'txt'
+      ? 'text_file'
+      : 'file'
+
+    form.append('input_type', inputType)
+    form.append('file_type', ext)
+  } else {
+    form.append('input_type', 'text')
+  }
+
   const res = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: userMessage }),
+    body: form,
   })
-  if (!res.ok) throw new Error(`Chat request failed: ${res.statusText}`)
+  if (!res.ok) {
+    // Try to surface the backend error message
+    let detail = res.statusText
+    try {
+      const errJson = await res.json()
+      detail = errJson.detail ?? detail
+    } catch (_) { /* ignore */ }
+    throw new Error(`Chat request failed: ${detail}`)
+  }
   const data = await res.json()
   return data.reply as string
 }

@@ -9,6 +9,8 @@ class AgentState(TypedDict, total=False):
     """LangGraph state representation for Member 2 Agentic workflow."""
 
     user_request: str
+    vision_input: Optional[str]
+    vision_result: Optional[Dict[str, Any]]
     status: str
     route: Optional[str]
     intent: Optional[str]
@@ -28,3 +30,5 @@ class AgentState(TypedDict, total=False):
     tool_required: bool
     error: Optional[str]
     iteration_count: int
+    metrics: Optional[Dict[str, float]]
+    brain_decision: Optional[Dict[str, Any]]
