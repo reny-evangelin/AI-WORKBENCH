@@ -1,0 +1,8 @@
+[
+    {"inputs": {"message": "Generate an Excel report for the pumps"}, "outputs": {"intent": "excel"}},
+    {"inputs": {"message": "Search my uploaded documents for information about safety protocols"}, "outputs": {"intent": "rag"}},
+    {"inputs": {"message": "Create a PDF report"}, "outputs": {"intent": "pdf"}},
+    {"inputs": {"message": "Hello there!"}, "outputs": {"intent": "chat"}},
+    {"inputs": {"message": "Explain this python code"}, "outputs": {"intent": "chat"}},
+    {"inputs": {"message": "Generate docx"}, "outputs": {"intent": "docx"}}
+]

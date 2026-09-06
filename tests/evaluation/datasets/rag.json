@@ -1,0 +1,4 @@
+[
+    {"inputs": {"question": "What is the purpose of a pump in a process plant?"}, "outputs": {"expected_keywords": ["transfer", "fluid", "pressure"]}},
+    {"inputs": {"question": "What happens if a valve fails closed?"}, "outputs": {"expected_keywords": ["flow", "stops", "blockage"]}}
+]

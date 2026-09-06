@@ -11,6 +11,7 @@ from .interfaces import (
     generate_docx_stub,
     generate_excel_stub,
 )
+from agent.tracing import traceable
 
 
 class ToolRegistry:
@@ -39,6 +40,7 @@ class ToolRegistry:
         """Return names of all registered tools."""
         return set(self._tools.keys())
 
+    @traceable(name="Execute_Tool")
     def execute_tool(self, tool_name: str, kwargs: Dict[str, Any]) -> ToolResult:
         """Safely execute registered tool. Rejects unauthorized tool execution."""
         name = tool_name.lower().strip()

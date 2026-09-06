@@ -104,7 +104,10 @@ def build_agent_graph():
 # Singleton compiled graph instance
 agent_graph = build_agent_graph()
 
-def process_request(user_request: str, image_path: str = None, callbacks=None, conversation_history=None):
+from agent.tracing import traceable
+
+@traceable(name="AgentWorkflow")
+def process_request(user_request: str, image_path: str = None, intent: str = None, callbacks=None, conversation_history=None):
     from ..schemas import AgentResponse
     logger.info(f"--- STARTING REQUEST PROCESS: {user_request} ---")
 
@@ -113,7 +116,7 @@ def process_request(user_request: str, image_path: str = None, callbacks=None, c
         vision_input=image_path,
         vision_result=None,
         status="initializing",
-        intent=None,
+        intent=intent,
         tool_required=False,
         messages=list(conversation_history) if conversation_history else [],
         sources=[],
@@ -125,9 +128,19 @@ def process_request(user_request: str, image_path: str = None, callbacks=None, c
     )
 
     try:
+        metadata = {
+            "intent": intent,
+            "has_image": bool(image_path),
+            "conversation_turns": len(conversation_history) if conversation_history else 0
+        }
+        
         final_state = agent_graph.invoke(
             initial_state, 
-            config={"recursion_limit": 25, "callbacks": callbacks}
+            config={
+                "recursion_limit": 25, 
+                "callbacks": callbacks,
+                "metadata": metadata
+            }
         )
         
         # Log performance

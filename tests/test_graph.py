@@ -42,11 +42,11 @@ def test_empty_input_routing():
         mock_llm.assert_not_called()
 
 
-from agent.graph.workflow import check_input_validity, route_action_choice, route_loop_eval
+from agent.graph.workflow import route_after_validation, route_action_choice, route_loop_eval
 
-def test_check_input_validity():
-    assert check_input_validity({"status": "needs_input"}) == "invalid"
-    assert check_input_validity({"status": "initializing"}) == "valid"
+def test_route_after_validation():
+    assert route_after_validation({"status": "needs_input"}) == "invalid"
+    assert route_after_validation({"status": "initializing"}) == "valid"
 
 def test_route_action_choice():
     assert route_action_choice({"tool_required": True}) == "tool"
@@ -56,6 +56,33 @@ def test_route_loop_eval():
     assert route_loop_eval({"status": "ready_to_finalize", "intent": "rag"}) == "synthesize"
     assert route_loop_eval({"status": "ready_to_finalize", "intent": "chat"}) == "finish"
     assert route_loop_eval({"status": "error", "intent": "rag"}) == "finish"
+
+
+def test_planner_json_failure_with_fallback():
+    from agent.graph.nodes import understand_request
+    from langchain_core.messages import AIMessage
+
+    class MockLLM:
+        def bind(self, *args, **kwargs):
+            return self
+            
+        def invoke(self, *args, **kwargs):
+            return AIMessage(content="I am a bad LLM and I refuse to output JSON!")
+
+    with patch("agent.graph.nodes.get_llm", return_value=MockLLM()):
+        # 1. Obvious intent - SmartRouter fallback should catch it
+        state1 = {"user_request": "generate an Excel report for the pumps", "intent": None}
+        result1 = understand_request(state1)
+        assert result1["intent"] == "excel"
+        assert result1["brain_decision"]["intent"] == "excel"
+        assert "excel_plan" in result1["brain_decision"]
+        
+        # 2. Complete gibberish - Fallback should error gracefully, not crash
+        state2 = {"user_request": "asdfasdfasdf", "intent": None}
+        result2 = understand_request(state2)
+        assert result2["intent"] == "error"
+        assert "internal error" in result2["brain_decision"]["direct_response"]
+
 
 # =====================================================================
 # Integration Tests (Require live Ollama service)

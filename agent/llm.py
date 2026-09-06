@@ -22,7 +22,6 @@ def get_llm(config: Optional[Settings] = None):
             model=config.ollama_model,
             base_url=config.ollama_base_url,
             temperature=config.temperature,
-            format="json", 
         )
 
     if _llm_instance is None:
@@ -31,6 +30,5 @@ def get_llm(config: Optional[Settings] = None):
             model=cfg.ollama_model,
             base_url=cfg.ollama_base_url,
             temperature=cfg.temperature,
-            format="json", 
         )
     return _llm_instance

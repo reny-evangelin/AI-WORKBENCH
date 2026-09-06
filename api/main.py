@@ -23,6 +23,12 @@ import os
 import time
 import logging
 import tempfile
+import warnings
+
+# Suppress noisy dependency warnings from opentelemetry/grpc and huggingface_hub
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="opentelemetry")
+warnings.filterwarnings("ignore", message=".*unauthenticated requests to the HF Hub.*")
+
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -35,6 +41,8 @@ from fastapi.staticfiles import StaticFiles
 
 from agent import process_request
 from vision.api import lifespan as vision_lifespan
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -114,11 +122,33 @@ class SmartRouter:
 
         # 3. No file uploaded → pure text chat
         if not file_path or not os.path.exists(file_path):
+            msg_lower = message.lower()
+            msg_words = set(msg_lower.replace(",", "").replace(".", "").replace("?", "").split())
+            
+            rag_keywords = {"knowledge", "sop", "manual", "procedure", "inspection", "register", "equipment", "maintenance", "search", "pump", "valve"}
+            excel_keywords = {"excel", "spreadsheet", "xlsx"}
+            doc_keywords = {"pdf", "docx", "document", "report"}
+            greeting_keywords = {"hello", "hi", "hey", "greetings"}
+            
+            intent = None
+            needs_rag = False
+            
+            if msg_words & rag_keywords:
+                intent = "rag"
+                needs_rag = True
+            elif msg_words & excel_keywords:
+                intent = "excel"
+            elif msg_words & doc_keywords:
+                intent = "docx" if "docx" in msg_words else "pdf"
+            elif len(msg_words) <= 3 and (msg_words & greeting_keywords):
+                intent = "chat"
+            
             return self._decision(
                 "text", t0,
                 needs_ocr=False, needs_vision=False,
-                needs_text_extraction=False, needs_rag=False,
-                reason="No file attached — pure text chat."
+                needs_text_extraction=False, needs_rag=needs_rag,
+                reason="No file attached — pure text chat" + (" with specific intent." if intent else "."),
+                intent=intent
             )
 
         # 4. Route by extension (deterministic Python)
@@ -273,6 +303,7 @@ class SmartRouter:
         needs_text_extraction: bool,
         needs_rag: bool,
         reason: str,
+        intent: Optional[str] = None,
     ) -> dict:
         routing_ms = (time.monotonic() - t0) * 1000
         logger.info(
@@ -287,7 +318,8 @@ class SmartRouter:
             "needs_text_extraction": needs_text_extraction,
             "needs_rag": needs_rag,
             "reason": reason,
-            "routing_ms": round(routing_ms, 2),
+            "routing_ms": routing_ms,
+            "intent": intent,
         }
 
 
@@ -369,7 +401,44 @@ def _process_txt(file_path: str) -> str:
 # FastAPI App
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="AI Agent API — Smart Router", lifespan=vision_lifespan)
+@asynccontextmanager
+async def global_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Warm up vision, Ollama, and RAG components."""
+    logger.info("Initializing global lifespan...")
+    
+    # 1. Warmup vision OCR
+    async with vision_lifespan(app):
+        
+        # 2. Preload RAG embeddings model (SentenceTransformers)
+        logger.info("Preloading embedding model...")
+        try:
+            from rag.embeddings import get_model
+            get_model()
+        except Exception as e:
+            logger.error(f"Failed to load embedding model: {e}")
+
+        # 3. Preload ChromaDB collections
+        logger.info("Preloading vector database...")
+        try:
+            from rag.chromadb_store import get_collection
+            get_collection()
+        except Exception as e:
+            logger.error(f"Failed to load ChromaDB: {e}")
+            
+        # 4. Preload Ollama LLM
+        logger.info("Preloading Ollama LLM client...")
+        try:
+            from agent.llm import get_llm
+            # ping the API
+            llm = get_llm()
+        except Exception as e:
+            logger.error(f"Failed to initialize LLM: {e}")
+            
+        logger.info("Global lifespan initialization complete.")
+        yield
+
+
+app = FastAPI(title="AI Agent API — Smart Router", lifespan=global_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -437,7 +506,9 @@ async def chat_endpoint(
                 raise HTTPException(status_code=400, detail="Uploaded file is empty (0 bytes).")
 
         # 2. Run the SmartRouter — deterministic, no LLM
-        decision = _router.route(
+        from starlette.concurrency import run_in_threadpool
+        decision = await run_in_threadpool(
+            _router.route,
             message=message,
             file_path=tmp_path,
             filename=filename,
@@ -515,7 +586,19 @@ async def chat_endpoint(
 
         # 5. Call the agent with the enriched message
         agent_t0 = time.monotonic()
-        response = process_request(enriched_message, image_path=image_for_agent)
+        
+        # If SmartRouter explicitly detected RAG needs (and it's a pure text query), 
+        # fast-track it by passing intent="rag" to avoid the 14-second LLM intent detection node.
+        # If SmartRouter explicitly detected intent, fast-track it to avoid the 14-second LLM intent node.
+        fast_intent = decision.get("intent")
+        
+        from starlette.concurrency import run_in_threadpool
+        response = await run_in_threadpool(
+            process_request,
+            enriched_message,
+            image_path=image_for_agent,
+            intent=fast_intent
+        )
         agent_ms = (time.monotonic() - agent_t0) * 1000
 
         total_ms = (time.monotonic() - total_t0) * 1000
@@ -584,7 +667,8 @@ async def upload_document(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
     from rag.pipeline import run_pipeline
-    summary = run_pipeline("data/documents")
+    from starlette.concurrency import run_in_threadpool
+    summary = await run_in_threadpool(run_pipeline, "data/documents")
     return {
         "id": str(uuid.uuid4()),
         "filename": filename,
@@ -600,8 +684,9 @@ async def upload_document(file: UploadFile = File(...)):
 @app.post("/rag/search")
 async def search_knowledge(query: dict):
     from rag.retriever import retrieve
+    from starlette.concurrency import run_in_threadpool
     q = query.get("query", "")
-    matches = retrieve(q, n_results=4)
+    matches = await run_in_threadpool(retrieve, q, n_results=4)
     return [
         {
             "id": str(uuid.uuid4()),
@@ -667,7 +752,8 @@ async def analyze_endpoint(context: dict):
     chain = prompt | llm | parser
 
     try:
-        report = chain.invoke({"context": json.dumps(context)})
+        from starlette.concurrency import run_in_threadpool
+        report = await run_in_threadpool(chain.invoke, {"context": json.dumps(context)})
         report.generatedAt = datetime.datetime.now().isoformat()
         return report.model_dump()
     except Exception as e:
@@ -681,7 +767,8 @@ async def analyze_endpoint(context: dict):
 
 @app.post("/generate-document")
 async def generate_document():
-    response = process_request("Generate a DOCX document")
+    from starlette.concurrency import run_in_threadpool
+    response = await run_in_threadpool(process_request, "Generate a DOCX document")
 
     import glob
     docx_files = glob.glob("outputs/*.docx")

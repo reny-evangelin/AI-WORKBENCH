@@ -102,16 +102,17 @@ def safe_json_parse(text: str) -> dict:
     elif "```" in text:
         text = text.split("```")[1].strip()
         
-    text = re.sub(r',\s*}', '}', text)
-    text = re.sub(r',\s*\]', ']', text)
+    text = text.strip()
     
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            json_str = text[start:end+1]
             try:
-                return json.loads(match.group(0))
+                return json.loads(json_str)
             except json.JSONDecodeError:
                 pass
     raise ValueError("Invalid JSON output")
@@ -121,7 +122,7 @@ def safe_json_parse(text: str) -> dict:
 def understand_request(state: AgentState) -> Dict[str, Any]:
     """Node: Uses LLM to understand intent and generate structured payload simultaneously."""
     user_req = state.get("user_request", "")
-    llm = get_llm()
+    llm = get_llm().bind(format="json")
     
     vision_res = state.get("vision_result")
     vision_context = ""
@@ -131,6 +132,24 @@ def understand_request(state: AgentState) -> Dict[str, Any]:
         vision_json = vision_json.replace("{", "{{").replace("}", "}}")
         vision_context = f"\n\nVISION ANALYSIS RESULT OF ATTACHED IMAGE:\n{vision_json}\nUse this information if the user asks about the image.\n"
     
+    fast_intent = state.get("intent")
+    if fast_intent in ["rag", "chat", "excel", "docx", "pdf"]:
+        logger.info(f"[AGENT] Fast-path: Intent pre-detected as '{fast_intent}' by Smart Router. Skipping LLM.")
+        decision = {"intent": fast_intent}
+        if fast_intent == "rag":
+            decision["search_query"] = user_req
+        elif fast_intent == "chat":
+            decision["direct_response"] = "Hello! I'm here to help." if "hello" in user_req.lower() else "I'll help you with that."
+        elif fast_intent == "excel":
+            decision["excel_plan"] = {"filename": "data.xlsx", "title": "Data", "sheets": []}
+        elif fast_intent in ["docx", "pdf"]:
+            decision["document_plan"] = {"title": "Document", "sections": []}
+            
+        return {
+            "intent": fast_intent,
+            "brain_decision": decision
+        }
+        
     prompt_text = (
         "You are the central brain of an AI Engineering Assistant.\n"
         "Analyze the user request and determine the exact intent: 'chat', 'rag', 'excel', 'pdf', or 'docx'.\n\n"
@@ -141,14 +160,24 @@ def understand_request(state: AgentState) -> Dict[str, Any]:
         "For excel_plan, preserve user data, create 'filename', 'title', and 'sheets' (with 'name', 'columns', 'rows', 'formulas').\n"
         "- IF asking to generate PDF/DOCX: intent = 'pdf' or 'docx' AND provide 'document_plan'. "
         "For document_plan, provide 'title' and 'sections' (with 'heading' and 'content').\n\n"
-        "OUTPUT FORMAT: You MUST return ONLY a valid JSON object matching the 'BrainDecision' schema.\n\n"
+        "OUTPUT FORMAT:\n"
+        "Return ONLY valid JSON.\n"
+        "Do not use Markdown.\n"
+        "Do not use ```json.\n"
+        "Do not add explanations before or after the JSON.\n\n"
+        "Required format:\n"
+        "{{\n"
+        '  "intent": "...",\n'
+        '  "search_query": "...",\n'
+        '  "direct_response": "..."\n'
+        "}}\n\n"
         f"User Request: {{request}}{vision_context}"
     )
     
     error_msg = ""
     decision_data = {}
     
-    for attempt in range(3):
+    for attempt in range(2):
         try:
             current_prompt = prompt_text
             if error_msg:
@@ -158,27 +187,52 @@ def understand_request(state: AgentState) -> Dict[str, Any]:
             prompt = PromptTemplate.from_template(current_prompt)
             res = (prompt | llm).invoke({"request": user_req})
             
+            logger.info(f"[PLANNER_RAW_OUTPUT] Attempt {attempt + 1}: {res.content}")
+            
             decision_data = safe_json_parse(res.content)
             
             # Validate schema
             from ..schemas import BrainDecision
             validated = BrainDecision(**decision_data)
             
-            logger.info(f"[AGENT] Intent detected: {validated.intent}")
+            logger.info(f"[PLANNER_SUCCESS] Intent detected: {validated.intent}")
             return {
                 "intent": validated.intent,
                 "brain_decision": validated.model_dump(),
             }
         except Exception as e:
             error_msg = str(e)
-            logger.warning(f"Understand request failed on attempt {attempt+1}: {e}")
+            logger.warning(f"[PLANNER_PARSE_ERROR] attempt {attempt+1}: {e}")
+            if attempt == 0:
+                logger.info("[PLANNER_RETRY] Retrying planner...")
             
-    # Fallback to simple chat error if JSON fails 3 times
+    # Fallback to SmartRouter if JSON fails twice
+    logger.warning("[PLANNER_FALLBACK] LLM planner failed twice, falling back to deterministic SmartRouter.")
+    import sys, os
+    sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+    from api.main import _router
+    
+    fallback_decision = _router.route(message=user_req, file_path=None, filename=None, input_type=None, file_type=None)
+    fallback_intent = fallback_decision.get("intent")
+    
+    if fallback_intent:
+        logger.info(f"[PLANNER_FALLBACK] SmartRouter salvaged intent: {fallback_intent}")
+        decision = {"intent": fallback_intent}
+        if fallback_intent == "rag": decision["search_query"] = user_req
+        elif fallback_intent == "chat": decision["direct_response"] = "I'm having trouble thinking clearly right now, but I'll do my best to help."
+        elif fallback_intent == "excel": decision["excel_plan"] = {"filename": "data.xlsx", "title": "Data", "sheets": []}
+        elif fallback_intent in ["docx", "pdf"]: decision["document_plan"] = {"title": "Document", "sections": []}
+        return {
+            "intent": fallback_intent,
+            "brain_decision": decision
+        }
+        
+    logger.error("[PLANNER_FALLBACK] SmartRouter also failed to determine intent.")
     return {
         "intent": "error",
         "brain_decision": {
             "intent": "error",
-            "direct_response": f"I encountered an internal error trying to plan this action: {error_msg}"
+            "direct_response": "I encountered an internal error trying to plan this action. Please try rephrasing your request."
         }
     }
 

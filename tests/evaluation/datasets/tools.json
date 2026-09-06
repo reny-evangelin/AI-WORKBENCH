@@ -1,0 +1,5 @@
+[
+    {"inputs": {"intent": "excel", "decision": {"excel_plan": {"filename": "data.xlsx", "title": "Data", "sheets": []}}}, "outputs": {"tool": "generate_excel_stub"}},
+    {"inputs": {"intent": "pdf", "decision": {"document_plan": {"title": "Doc", "sections": []}}}, "outputs": {"tool": "generate_pdf_stub"}},
+    {"inputs": {"intent": "docx", "decision": {"document_plan": {"title": "Doc", "sections": []}}}, "outputs": {"tool": "generate_docx_stub"}}
+]
